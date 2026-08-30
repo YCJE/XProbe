@@ -1,6 +1,7 @@
 // XProbe Agent 入口。
-// M1 范围: 采集 + JSON 输出(常驻模式打印到 stdout, --once 输出一帧后退出);
-// M2 接入 WebSocket 上报/注册/配置拉取。
+// M2 流程: 校验 https(S2) → 无 Token 则 REST 注册换 Token 并落盘(S9/S8) →
+// WebSocket 上报(退避重连+jitter/心跳/证书 Pinning) + 定时配置拉取(只读)。
+// --once 验收模式保持不变(采集一帧 JSON 到 stdout)。
 package main
 
 import (
@@ -11,14 +12,23 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/YCJE/XProbe/agent/internal/collector"
 	"github.com/YCJE/XProbe/agent/internal/config"
+	"github.com/YCJE/XProbe/agent/internal/configsync"
+	"github.com/YCJE/XProbe/agent/internal/fingerprint"
+	"github.com/YCJE/XProbe/agent/internal/register"
+	"github.com/YCJE/XProbe/agent/internal/reporter"
 	"github.com/YCJE/XProbe/agent/internal/state"
+	"github.com/YCJE/XProbe/agent/internal/tlsconf"
 	"github.com/YCJE/XProbe/internal/model"
 	"github.com/YCJE/XProbe/internal/version"
 )
@@ -50,6 +60,7 @@ func main() {
 	}
 
 	src := collector.DefaultSources()
+	cpu := collector.NewCPU(src)
 
 	var tracker *state.Tracker
 	if *once {
@@ -91,32 +102,118 @@ func main() {
 		return
 	}
 
-	// 常驻模式: 按配置间隔输出上报帧到 stdout(M2 起改走 WebSocket)
+	runPersistent(cfg, *configPath, src, cpu, tracker, agent, buildReport)
+}
+
+// runPersistent 常驻模式: 注册 → WebSocket 上报 + 配置拉取。
+func runPersistent(cfg *config.Config, configPath string, src collector.Sources,
+	cpu *collector.CPU, tracker *state.Tracker, agent *collector.Agent,
+	buildReport func() model.Report) {
+
+	// S2: Server 地址必须 https
+	serverURL, err := tlsconf.ValidateServerURL(cfg.Server)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	// 主机指纹(设计文档 7.5): salt + CPU 型号 + 主网卡 MAC + GOOS
+	hostFP := ""
+	if cfg.InstallSalt != "" {
+		info := cpu.StaticInfo()
+		ifaces, ierr := net.Interfaces()
+		if ierr != nil {
+			log.Fatalf("fingerprint: %v", ierr)
+		}
+		mac, merr := fingerprint.PickPrimaryMAC(ifaces)
+		if merr != nil {
+			log.Fatalf("fingerprint: %v", merr)
+		}
+		hostFP = fingerprint.Compute(cfg.InstallSalt, info.Model, mac, runtime.GOOS)
+	} else {
+		log.Printf("[fingerprint] install_salt missing in config: WS handshake will be rejected (403); restore install_salt or reinstall")
+	}
+
+	// 注册流程(设计文档 4.2): 无 Token 时用注册码换取, 响应中 Token 唯一一次下发
+	if cfg.Token == "" {
+		if cfg.RegisterCode == "" {
+			log.Fatal("config: token or register_code required")
+		}
+		if hostFP == "" {
+			log.Fatal("config: install_salt required for registration (fingerprint binding)")
+		}
+		_, sysInfo, _, _ := collector.NewSystem(src).Collect()
+		regTLS := tlsconf.New(cfg.ServerCertFingerprints, serverURL.Hostname())
+		regClient := &register.Client{
+			HTTP:      &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: regTLS}},
+			ServerURL: serverURL.String(),
+		}
+		resp, rerr := regClient.Register(context.Background(), model.RegisterRequest{
+			RegisterCode:    cfg.RegisterCode,
+			Hostname:        agent.Hostname(),
+			HostFingerprint: hostFP,
+			OS:              sysInfo.OS,
+			Arch:            runtime.GOARCH,
+			AgentVersion:    version.Version,
+		})
+		if rerr != nil {
+			log.Fatalf("register: %v", rerr)
+		}
+		cfg.Token = resp.Token
+		cfg.RegisterCode = "" // 一次性, 用后即除
+		if serr := config.Save(configPath, cfg); serr != nil {
+			log.Fatalf("save token to config: %v", serr)
+		}
+		log.Printf("registered: agent_id=%d, token saved to %s (register code consumed)", resp.AgentID, configPath)
+	}
+
+	tlsC := tlsconf.New(cfg.ServerCertFingerprints, serverURL.Hostname())
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// 配置拉取(设计文档 4.7): 立即一次 + 每小时; 失败保留本地缓存
+	go func() {
+		cachePath := filepath.Join(filepath.Dir(cfg.StateFile), "ping_targets.json")
+		httpc := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsC}}
+		pull := func() {
+			p, perr := configsync.Pull(ctx, httpc, serverURL.String(), cfg.Token)
+			if perr != nil {
+				log.Printf("[config] pull failed, keep cache: %v", perr)
+				return
+			}
+			if serr := configsync.SaveCache(cachePath, p); serr != nil {
+				log.Printf("[config] save cache: %v", serr)
+				return
+			}
+			log.Printf("[config] pulled %d ping targets", len(p.PingTargets))
+		}
+		pull()
+		t := time.NewTicker(time.Duration(cfg.ConfigSyncInterval) * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				pull()
+			}
+		}
+	}()
+
+	client := &reporter.Client{
+		WSURL:             tlsconf.WSURL(serverURL),
+		Token:             cfg.Token,
+		Fingerprint:       hostFP,
+		ReportInterval:    time.Duration(cfg.ReportInterval) * time.Second,
+		HeartbeatInterval: 30 * time.Second,
+		Dial:              reporter.DefaultDial(tlsconf.WSURL(serverURL), tlsC, true),
+		Collect: func(ctx context.Context) (model.Report, error) {
+			return buildReport(), nil
+		},
+	}
 	log.Printf("xprobe-agent %s started: server=%s report_interval=%ds state=%s",
 		version.Version, cfg.Server, cfg.ReportInterval, cfg.StateFile)
-
-	emit := func() {
-		b, merr := json.Marshal(buildReport())
-		if merr != nil {
-			log.Printf("marshal report: %v", merr)
-			return
-		}
-		fmt.Println(string(b))
+	if err := client.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatalf("reporter exited: %v", err)
 	}
-	emit()
-
-	ticker := time.NewTicker(time.Duration(cfg.ReportInterval) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			log.Printf("shutting down")
-			return
-		case <-ticker.C:
-			emit()
-		}
-	}
+	log.Printf("shutting down")
 }

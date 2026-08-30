@@ -43,6 +43,9 @@ func (c *CPU) Collect() (model.CPUInfo, error) {
 	return info, nil
 }
 
+// StaticInfo 公开静态信息采集(注册流程用于主机指纹与系统元数据)。
+func (c *CPU) StaticInfo() model.CPUInfo { return c.staticInfo() }
+
 // staticInfo 采集核心数/型号/负载, 不依赖采样差值。
 func (c *CPU) staticInfo() model.CPUInfo {
 	info := model.CPUInfo{}

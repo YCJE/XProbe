@@ -70,6 +70,31 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// Save 原子写回配置文件(权限 600, S8): 注册成功后持久化 Token 并移除注册码。
+func Save(path string, c *Config) error {
+	b, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func dirOf(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' || path[i] == '\\' {
+			return path[:i]
+		}
+	}
+	return "."
+}
+
 func (c *Config) validate() error {
 	switch c.PingMethod {
 	case "auto", "icmp", "tcp":
