@@ -48,6 +48,19 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 			authed.DELETE("/servers/:id", d.HandleDeleteServer)
 			authed.POST("/servers/:id/reset-fingerprint", d.HandleResetFingerprint)
 
+			// 告警与通知(M5)
+			authed.GET("/alerts", d.HandleListAlerts)
+			authed.POST("/alerts", d.HandleCreateAlert)
+			authed.DELETE("/alerts/:id", d.HandleDeleteAlert)
+			authed.GET("/alerts/history", d.HandleAlertHistory)
+			authed.GET("/notify/channels", d.HandleListChannels)
+			authed.POST("/notify/channels", d.HandleCreateChannel)
+			authed.PUT("/notify/channels/:id", d.HandleUpdateChannel)
+			authed.DELETE("/notify/channels/:id", d.HandleDeleteChannel)
+			authed.POST("/notify/channels/:id/test", d.HandleTestChannel)
+			authed.GET("/config/share", d.HandleGetShare)
+			authed.PUT("/config/share", d.HandleSaveShare)
+
 			// 标签
 			authed.GET("/tags", d.HandleListTags)
 			authed.POST("/tags", d.HandleCreateTag)
@@ -66,6 +79,9 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 		api.GET("/agent/config", AgentAuth(d.Agents), d.HandleAgentConfig)
 		api.GET("/agent/report", AgentAuth(d.Agents), d.HandleAgentWS)
 		api.GET("/server-cert", d.HandleServerCert)
+
+		// 公开分享页(免登录, 白名单字段)
+		api.GET("/public/:share_id", d.HandlePublicShare)
 	}
 
 	// 面板实时推送(JWT Cookie 认证)

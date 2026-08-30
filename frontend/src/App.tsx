@@ -7,7 +7,8 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { DetailPage } from "./pages/DetailPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AlertsPage } from "./pages/AlertsPage";
-import { NotifyPage, ShareConfigPage } from "./pages/NotifyPage";
+import { NotifyPage } from "./pages/NotifyPage";
+import { ShareConfigPage } from "./pages/SharePage";
 import { SharePage } from "./pages/SharePage";
 
 function TopNav() {

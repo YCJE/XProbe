@@ -36,6 +36,13 @@ func main() {
 	configPath := flag.String("config", config.DefaultPath, "配置文件路径")
 	dataDir := flag.String("data-dir", "", "数据目录(覆盖配置文件)")
 	showVersion := flag.Bool("version", false, "打印版本号后退出")
+
+	// 子命令: reset-password(管理员密码找回, 设计文档 7.3.1)
+	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
+		runResetPassword(os.Args[2:])
+		return
+	}
+
 	flag.Parse()
 
 	if *showVersion {
@@ -75,6 +82,9 @@ func main() {
 	admins := repository.NewAdminRepo(db)
 	sessions := repository.NewSessionRepo(db)
 	tags := repository.NewTagRepo(db)
+	alerts := repository.NewAlertRepo(db)
+	notifyChannels := repository.NewNotifyChannelRepo(db)
+	shareRepo := repository.NewSharePageRepo(db)
 	if err := pingTargets.EnsureSeedDefaults(context.Background(), time.Now().Unix()); err != nil {
 		log.Fatalf("seed ping targets: %v", err)
 	}
@@ -101,6 +111,7 @@ func main() {
 		log.Printf("[alert] agent=%d went offline", agentID) // M5: 告警状态机接线点
 	})
 	authSvc := service.NewAuth(admins, sessions, jwtMgr, pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute))
+	notifier := service.NewNotifier(notifyChannels)
 
 	router := api.NewRouter(api.Deps{
 		Registry:        registry,
@@ -112,6 +123,10 @@ func main() {
 		JWT:             jwtMgr,
 		Sessions:        sessions,
 		Tags:            tags,
+		Alerts:          alerts,
+		NotifyChannels:  notifyChannels,
+		Notifier:        notifier,
+		Share:           shareRepo,
 		RegisterLimiter: pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
 		LoginLimiter:    pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
 		GlobalLimiter:   pkg.NewLimiter(cfg.Security.GlobalRateLimit, time.Minute),
@@ -119,12 +134,17 @@ func main() {
 		WSCompression:   *cfg.Monitor.WSCompression,
 	}, mustWebFS())
 
-	// 后台任务: 心跳兜底巡检 + 实时数据聚合落盘(5min/日, 设计文档 5.3) + 会话/注册码清理
+	// 后台任务: 心跳兜底巡检 + 实时数据聚合落盘(5min/日, 设计文档 5.3) + 告警引擎 + 会话/注册码清理
 	sweepCtx, stopSweep := context.WithCancel(context.Background())
 	defer stopSweep()
 	go hub.RunSweeper(sweepCtx, 15*time.Second)
 	aggregator := service.NewAggregator(hub, records, agents)
 	go aggregator.Run(sweepCtx, 5*time.Minute)
+	alertEngine := service.NewAlertEngine(alerts, agents, hub, notifier)
+	if err := alertEngine.Restore(sweepCtx); err != nil {
+		log.Printf("[alert] restore: %v", err)
+	}
+	go alertEngine.Run(sweepCtx, 30*time.Second)
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()

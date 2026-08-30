@@ -18,10 +18,15 @@ type Deps struct {
 	Records         *repository.RecordRepo
 	RegisterLimiter *pkg.Limiter // 5 次/分钟/IP
 	// 管理面
-	Auth            *service.Auth
-	JWT             *pkg.JWTManager
-	Sessions        *repository.SessionRepo
-	Tags            *repository.TagRepo
+	Auth     *service.Auth
+	JWT      *pkg.JWTManager
+	Sessions *repository.SessionRepo
+	Tags     *repository.TagRepo
+	// 告警与通知(M5)
+	Alerts          *repository.AlertRepo
+	NotifyChannels  *repository.NotifyChannelRepo
+	Notifier        *service.Notifier
+	Share           *repository.SharePageRepo
 	LoginLimiter    *pkg.Limiter // 5 次/分钟/IP
 	GlobalLimiter   *pkg.Limiter // 120 次/分钟/IP
 	CertFingerprint string

@@ -53,7 +53,8 @@ type Hub struct {
 	repo             *repository.AgentRepo
 	heartbeatTimeout time.Duration
 	now              func() time.Time
-	onOffline        func(agentID int64) // 告警钩子(M5 接线), 可为 nil
+	onOffline        func(agentID int64) // 告警钩子(设计文档 5.4), 可为 nil
+	onOnline         func(agentID int64)
 }
 
 func NewHub(repo *repository.AgentRepo, heartbeatTimeout time.Duration) *Hub {
@@ -70,6 +71,9 @@ func NewHub(repo *repository.AgentRepo, heartbeatTimeout time.Duration) *Hub {
 }
 
 func (h *Hub) SetOnOffline(fn func(agentID int64)) { h.onOffline = fn }
+
+// SetOnOnline 上线钩子(离线告警恢复)。
+func (h *Hub) SetOnOnline(fn func(agentID int64)) { h.onOnline = fn }
 
 // HeartbeatTimeout 返回心跳超时配置(WS 读截止时间用)。
 func (h *Hub) HeartbeatTimeout() time.Duration { return h.heartbeatTimeout }
@@ -92,6 +96,12 @@ func (h *Hub) Attach(id int64, c WSConn) error {
 
 	if old != nil {
 		_ = old.Close() // 触发旧读循环退出 → 旧 Detach(发现 conn 已替换不会覆盖状态)
+	}
+	h.mu.Lock()
+	online := h.onOnline
+	h.mu.Unlock()
+	if online != nil {
+		online(id)
 	}
 	return h.repo.Touch(context.Background(), id, true, h.now().Unix())
 }
