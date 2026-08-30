@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"runtime"
 	"syscall"
 	"time"
@@ -170,7 +171,17 @@ func runPersistent(cfg *config.Config, configPath string, src collector.Sources,
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 配置拉取(设计文档 4.7): 立即一次 + 每小时; 失败保留本地缓存
+	// 探测目标来源: 配置拉取缓存(设计文档 4.7), Ping 采集器每轮从这里读取
+	targets := &targetHolder{}
+	if cached, cerr := configsync.LoadCache(filepath.Join(filepath.Dir(cfg.StateFile), "ping_targets.json")); cerr == nil {
+		targets.set(cached.PingTargets)
+	}
+
+	// Ping 采集器(设计文档 4.6): privileged ICMP → unprivileged ICMP → TCP 降级链
+	pingCollector := collector.NewPingCollector(collector.PingMethod(cfg.PingMethod))
+	pingCollector.Targets = targets.get
+
+	// 配置拉取: 立即一次 + 每小时; 失败保留本地缓存
 	go func() {
 		cachePath := filepath.Join(filepath.Dir(cfg.StateFile), "ping_targets.json")
 		httpc := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsC}}
@@ -184,6 +195,7 @@ func runPersistent(cfg *config.Config, configPath string, src collector.Sources,
 				log.Printf("[config] save cache: %v", serr)
 				return
 			}
+			targets.set(p.PingTargets)
 			log.Printf("[config] pulled %d ping targets", len(p.PingTargets))
 		}
 		pull()
@@ -205,15 +217,35 @@ func runPersistent(cfg *config.Config, configPath string, src collector.Sources,
 		Fingerprint:       hostFP,
 		ReportInterval:    time.Duration(cfg.ReportInterval) * time.Second,
 		HeartbeatInterval: 30 * time.Second,
+		PingInterval:      60 * time.Second,
 		Dial:              reporter.DefaultDial(tlsconf.WSURL(serverURL), tlsC, true),
 		Collect: func(ctx context.Context) (model.Report, error) {
 			return buildReport(), nil
 		},
+		PingCollect: pingCollector.Collect,
 	}
-	log.Printf("xprobe-agent %s started: server=%s report_interval=%ds state=%s",
-		version.Version, cfg.Server, cfg.ReportInterval, cfg.StateFile)
+	log.Printf("xprobe-agent %s started: server=%s report_interval=%ds state=%s ping_method=%s",
+		version.Version, cfg.Server, cfg.ReportInterval, cfg.StateFile, cfg.PingMethod)
 	if err := client.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatalf("reporter exited: %v", err)
 	}
 	log.Printf("shutting down")
+}
+
+// targetHolder 并发安全的探测目标缓存。
+type targetHolder struct {
+	mu      sync.RWMutex
+	targets []model.PingTarget
+}
+
+func (h *targetHolder) get() []model.PingTarget {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.targets
+}
+
+func (h *targetHolder) set(t []model.PingTarget) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.targets = t
 }

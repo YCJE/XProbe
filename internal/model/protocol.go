@@ -43,6 +43,7 @@ type PingTarget struct {
 	ISP       string `json:"isp,omitempty"`
 	IPVersion int    `json:"ip_version"`
 	Protocol  string `json:"protocol"` // icmp / tcp(带端口自动判定)
+	Enabled   bool   `json:"enabled"`
 }
 
 // AgentConfigPayload 配置拉取响应载荷。

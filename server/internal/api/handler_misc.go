@@ -11,7 +11,7 @@ import (
 	"github.com/YCJE/XProbe/server/internal/service"
 )
 
-// HandleListPingTargets GET /api/v1/config/ping-targets(只读; CRUD 在 M4)。
+// HandleListPingTargets GET /api/v1/config/ping-targets。
 func (d Deps) HandleListPingTargets(c *gin.Context) {
 	targets, err := d.PingTargets.ListEnabled(c.Request.Context())
 	if err != nil {
@@ -19,6 +19,58 @@ func (d Deps) HandleListPingTargets(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ping_targets": targets})
+}
+
+// HandleCreatePingTarget POST /api/v1/config/ping-targets。
+func (d Deps) HandleCreatePingTarget(c *gin.Context) {
+	var t model.PingTarget
+	if err := c.ShouldBindJSON(&t); err != nil || t.Target == "" || t.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target and name required"})
+		return
+	}
+	if t.IPVersion != 4 && t.IPVersion != 6 {
+		t.IPVersion = 4
+	}
+	if t.Protocol == "" {
+		t.Protocol = "icmp"
+	}
+	id, err := d.PingTargets.Create(c.Request.Context(), t)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id})
+}
+
+// HandleUpdatePingTarget PUT /api/v1/config/ping-targets/:id。
+func (d Deps) HandleUpdatePingTarget(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var t model.PingTarget
+	if err := c.ShouldBindJSON(&t); err != nil || t.Target == "" || t.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "target and name required"})
+		return
+	}
+	if err := d.PingTargets.Update(c.Request.Context(), id, t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// HandleDeletePingTarget DELETE /api/v1/config/ping-targets/:id(预置目标不可删)。
+func (d Deps) HandleDeletePingTarget(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := d.PingTargets.Delete(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // HandleServerTraffic GET /api/v1/servers/:id/traffic(月度流量归档)。

@@ -54,8 +54,11 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 			authed.PUT("/tags/:id", d.HandleUpdateTag)
 			authed.DELETE("/tags/:id", d.HandleDeleteTag)
 
-			// 设置(探测目标 CRUD 在 M4 前以只读提供)
+			// 探测目标(预置目标可停用不可删除)
 			authed.GET("/config/ping-targets", d.HandleListPingTargets)
+			authed.POST("/config/ping-targets", d.HandleCreatePingTarget)
+			authed.PUT("/config/ping-targets/:id", d.HandleUpdatePingTarget)
+			authed.DELETE("/config/ping-targets/:id", d.HandleDeletePingTarget)
 		}
 
 		// Agent 专用(非面板)

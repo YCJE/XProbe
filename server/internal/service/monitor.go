@@ -283,6 +283,27 @@ func (h *Hub) Drop(id int64) {
 	}
 }
 
+// AgentIDs 返回有环形缓冲的 Agent 列表(聚合器用)。
+func (h *Hub) AgentIDs() []int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := make([]int64, 0, len(h.reports))
+	for id := range h.reports {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// PingRows 返回全部 ping 历史行(旧→新, 每行为一轮探测)。
+func (h *Hub) PingRows(id int64) [][]model.PingResult {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if buf, ok := h.pings[id]; ok {
+		return buf.Snapshot()
+	}
+	return nil
+}
+
 // Describe 连接调试信息。
 func (h *Hub) Describe(id int64) string {
 	h.mu.Lock()

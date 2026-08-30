@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/YCJE/XProbe/internal/model"
 )
@@ -34,6 +36,65 @@ func (r *PingTargetRepo) ListEnabled(ctx context.Context) ([]model.PingTarget, e
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// Create 新增探测目标。
+func (r *PingTargetRepo) Create(ctx context.Context, t model.PingTarget) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `INSERT INTO ping_targets
+		(target, name, region, isp, ip_version, protocol, is_default, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)`,
+		t.Target, t.Name, t.Region, t.ISP, t.IPVersion, t.Protocol, time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// Update 修改探测目标(预置目标可改不可删)。
+func (r *PingTargetRepo) Update(ctx context.Context, id int64, t model.PingTarget) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE ping_targets SET
+		target = ?, name = ?, region = ?, isp = ?, ip_version = ?, protocol = ?, enabled = ?
+		WHERE id = ?`,
+		t.Target, t.Name, t.Region, t.ISP, t.IPVersion, t.Protocol, boolToInt(t.Enabled), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+var ErrDefaultTarget = errors.New("repository: default ping target cannot be deleted, disable instead")
+
+// Delete 删除探测目标(预置 is_default 目标不可删, 只可停用, 设计文档 5.6)。
+func (r *PingTargetRepo) Delete(ctx context.Context, id int64) error {
+	var isDefault int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT is_default FROM ping_targets WHERE id = ?`, id).Scan(&isDefault); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if isDefault == 1 {
+		return ErrDefaultTarget
+	}
+	res, err := r.db.ExecContext(ctx, `DELETE FROM ping_targets WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // EnsureSeedDefaults 首次启动写入预置默认目标(is_default=1, 可停用不可删除, 设计文档 5.6)。

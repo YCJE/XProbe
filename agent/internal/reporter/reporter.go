@@ -65,6 +65,9 @@ type DialFunc func(ctx context.Context, header http.Header) (*websocket.Conn, er
 // CollectFunc 采集一帧上报数据。
 type CollectFunc func(ctx context.Context) (model.Report, error)
 
+// PingCollectFunc 执行一轮完整探测并返回结果(设计文档 4.6)。
+type PingCollectFunc func(ctx context.Context) ([]model.PingResult, error)
+
 type Client struct {
 	WSURL             string
 	Token             string
@@ -73,8 +76,10 @@ type Client struct {
 	HeartbeatInterval time.Duration
 	// BackoffStart 重连退避基数, 生产默认 1s(设计文档 5.2); 测试可调小。
 	BackoffStart time.Duration
+	PingInterval time.Duration // 探测周期, 默认 60s(设计文档 4.6)
 	Dial         DialFunc
 	Collect      CollectFunc
+	PingCollect  PingCollectFunc
 }
 
 func (c *Client) logf(format string, args ...any) {
@@ -153,6 +158,12 @@ func (c *Client) session(ctx context.Context, conn *websocket.Conn) {
 	defer reportT.Stop()
 	hbT := time.NewTicker(c.HeartbeatInterval)
 	defer hbT.Stop()
+	pingInterval := c.PingInterval
+	if pingInterval <= 0 {
+		pingInterval = 60 * time.Second
+	}
+	pingT := time.NewTicker(pingInterval)
+	defer pingT.Stop()
 
 	// 连接建立立即上报首帧
 	if r, err := c.Collect(ctx); err == nil {
@@ -181,6 +192,22 @@ func (c *Client) session(ctx context.Context, conn *websocket.Conn) {
 		case <-hbT.C:
 			if err := send(model.Heartbeat{Type: model.FrameHeartbeat, Timestamp: time.Now().Unix()}); err != nil {
 				c.logf("send heartbeat: %v", err)
+				return
+			}
+		case <-pingT.C:
+			if c.PingCollect == nil {
+				continue
+			}
+			results, perr := c.PingCollect(ctx)
+			if perr != nil {
+				c.logf("ping collect: %v", perr)
+				continue
+			}
+			if len(results) == 0 {
+				continue
+			}
+			if err := send(model.PingReport{Type: model.FramePingResult, Data: results}); err != nil {
+				c.logf("send ping_result: %v", err)
 				return
 			}
 		}
