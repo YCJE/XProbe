@@ -119,10 +119,12 @@ func main() {
 		WSCompression:   *cfg.Monitor.WSCompression,
 	}, mustWebFS())
 
-	// 后台任务: 心跳兜底巡检 + 会话清理
+	// 后台任务: 心跳兜底巡检 + 实时数据聚合落盘(5min/日, 设计文档 5.3) + 会话/注册码清理
 	sweepCtx, stopSweep := context.WithCancel(context.Background())
 	defer stopSweep()
 	go hub.RunSweeper(sweepCtx, 15*time.Second)
+	aggregator := service.NewAggregator(hub, records, agents)
+	go aggregator.Run(sweepCtx, 5*time.Minute)
 	go func() {
 		t := time.NewTicker(time.Hour)
 		defer t.Stop()
