@@ -10,10 +10,21 @@ type Agent struct {
 	OS              string
 	Arch            string
 	AgentVersion    string
-	HostFingerprint string
+	HostFingerprint string // 可为 NULL(reset-fingerprint 后待重新绑定)
 	IPv4            string
 	IPv6            string
-	CreatedAt       int64
-	LastSeen        int64
-	Online          bool
+	// 元数据(全部管理员设置, 设计文档 5.8)
+	Region            string
+	CountryCode       string
+	ISP               string
+	TagIDs            string // JSON 数组字符串
+	ExpiresAt         int64
+	PriceAmount       float64
+	PriceCurrency     string
+	PriceCycle        string
+	TrafficQuotaBytes int64
+
+	CreatedAt int64
+	LastSeen  int64
+	Online    bool
 }

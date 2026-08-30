@@ -129,6 +129,16 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 	return &model.RegisterResponse{Token: token, AgentID: id}, nil
 }
 
+// ListCodes 管理页注册码列表。
+func (s *Registry) ListCodes(ctx context.Context) ([]model.RegisterCodeInfo, error) {
+	return s.codes.List(ctx)
+}
+
+// DeleteCode 删除未使用的注册码。
+func (s *Registry) DeleteCode(ctx context.Context, hash string) error {
+	return s.codes.Delete(ctx, hash)
+}
+
 func randomCode(n int) (string, error) {
 	out := make([]byte, n)
 	max := big.NewInt(int64(len(codeAlphabet)))

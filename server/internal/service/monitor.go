@@ -47,7 +47,7 @@ type Hub struct {
 	conns      map[int64]WSConn
 	lastSeen   map[int64]time.Time
 	lastReport map[int64]time.Time
-	reports    map[int64]*repository.RingBuffer[model.ReportData]
+	reports    map[int64]*repository.RingBuffer[model.Report]
 	pings      map[int64]*repository.RingBuffer[[]model.PingResult]
 
 	repo             *repository.AgentRepo
@@ -61,7 +61,7 @@ func NewHub(repo *repository.AgentRepo, heartbeatTimeout time.Duration) *Hub {
 		conns:            map[int64]WSConn{},
 		lastSeen:         map[int64]time.Time{},
 		lastReport:       map[int64]time.Time{},
-		reports:          map[int64]*repository.RingBuffer[model.ReportData]{},
+		reports:          map[int64]*repository.RingBuffer[model.Report]{},
 		pings:            map[int64]*repository.RingBuffer[[]model.PingResult]{},
 		repo:             repo,
 		heartbeatTimeout: heartbeatTimeout,
@@ -85,8 +85,8 @@ func (h *Hub) Attach(id int64, c WSConn) error {
 	h.lastSeen[id] = h.now()
 	h.lastReport[id] = time.Time{}
 	if _, ok := h.reports[id]; !ok {
-		h.reports[id] = repository.NewRingBuffer[model.ReportData](3600) // 3s/点 × 3h
-		h.pings[id] = repository.NewRingBuffer[[]model.PingResult](60)   // 60s/点 × 1h
+		h.reports[id] = repository.NewRingBuffer[model.Report](3600)   // 3s/点 × 3h
+		h.pings[id] = repository.NewRingBuffer[[]model.PingResult](60) // 60s/点 × 1h
 	}
 	h.mu.Unlock()
 
@@ -128,7 +128,7 @@ func (h *Hub) HandleReport(id int64, r *model.Report) error {
 	h.lastReport[id] = now
 	h.lastSeen[id] = now
 	if buf, ok := h.reports[id]; ok {
-		buf.Push(r.Data)
+		buf.Push(*r)
 	}
 	return nil
 }
@@ -211,16 +211,6 @@ func (h *Hub) RunSweeper(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Snapshot 供 M3 面板读取(当前仅环形缓冲视图)。
-func (h *Hub) ReportSnapshot(id int64) []model.ReportData {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if buf, ok := h.reports[id]; ok {
-		return buf.Snapshot()
-	}
-	return nil
-}
-
 func (h *Hub) PingSnapshot(id int64) []model.PingResult {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -236,6 +226,61 @@ func (h *Hub) PingSnapshot(id int64) []model.PingResult {
 		return latest
 	}
 	return nil
+}
+
+// ReportSnapshot 返回全部实时帧(旧→新, 含时间戳)。
+func (h *Hub) ReportSnapshot(id int64) []model.Report {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if buf, ok := h.reports[id]; ok {
+		return buf.Snapshot()
+	}
+	return nil
+}
+
+// LatestReport 返回该 Agent 最新一帧实时数据。
+func (h *Hub) LatestReport(id int64) (model.ReportData, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	buf, ok := h.reports[id]
+	if !ok {
+		return model.ReportData{}, false
+	}
+	snap := buf.Latest(1)
+	if len(snap) == 0 {
+		return model.ReportData{}, false
+	}
+	return snap[0].Data, true
+}
+
+// LatestPing 返回该 Agent 最近一轮探测结果。
+func (h *Hub) LatestPing(id int64) ([]model.PingResult, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	buf, ok := h.pings[id]
+	if !ok {
+		return nil, false
+	}
+	snap := buf.Latest(1)
+	if len(snap) == 0 {
+		return nil, false
+	}
+	return snap[0], true
+}
+
+// Drop 服务端主动断开某 Agent(删除记录后调用)。
+func (h *Hub) Drop(id int64) {
+	h.mu.Lock()
+	c := h.conns[id]
+	delete(h.conns, id)
+	delete(h.reports, id)
+	delete(h.pings, id)
+	delete(h.lastSeen, id)
+	delete(h.lastReport, id)
+	h.mu.Unlock()
+	if c != nil {
+		_ = c.Close()
+	}
 }
 
 // Describe 连接调试信息。

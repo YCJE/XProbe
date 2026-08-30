@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/YCJE/XProbe/internal/model"
 )
 
 // RegisterCodeRepo 管理注册码(库中仅存 SHA256 哈希, S9)。
@@ -73,6 +75,40 @@ func (r *RegisterCodeRepo) Consume(ctx context.Context, codeHash string, agentID
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// List 列出全部注册码(管理页展示, 哈希即标识)。
+func (r *RegisterCodeRepo) List(ctx context.Context) ([]model.RegisterCodeInfo, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT code_hash, created_at, expires_at, used, COALESCE(used_by_agent_id, 0)
+		 FROM register_codes ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.RegisterCodeInfo{}
+	for rows.Next() {
+		var c model.RegisterCodeInfo
+		var used int
+		if err := rows.Scan(&c.Hash, &c.CreatedAt, &c.ExpiresAt, &used, &c.UsedByAgentID); err != nil {
+			return nil, err
+		}
+		c.Used = used == 1
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// Delete 删除未使用的注册码。
+func (r *RegisterCodeRepo) Delete(ctx context.Context, codeHash string) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM register_codes WHERE code_hash = ? AND used = 0`, codeHash)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteExpired 清理已过期注册码(含已使用), 由定时任务调用。

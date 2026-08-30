@@ -16,6 +16,12 @@ type TLSConfig struct {
 	Key  string `yaml:"key"`
 }
 
+type AuthConfig struct {
+	JWTSecret    string `yaml:"jwt_secret"`     // 留空则 env 或首次生成持久化(设计文档 8.2)
+	CookieSecure *bool  `yaml:"cookie_secure"`  // 默认 true; 仅本地 http 开发设 false
+	JWTExpiryMin int    `yaml:"jwt_expiry_min"` // 默认 120(2h, 设计文档 7.3)
+}
+
 type MonitorConfig struct {
 	HeartbeatTimeout int   `yaml:"heartbeat_timeout"` // 秒, 默认 90
 	WSCompression    *bool `yaml:"ws_compression"`    // 默认 true
@@ -30,6 +36,7 @@ type Config struct {
 	Listen   string         `yaml:"listen"`
 	DataDir  string         `yaml:"data_dir"`
 	TLS      TLSConfig      `yaml:"tls"`
+	Auth     AuthConfig     `yaml:"auth"`
 	Monitor  MonitorConfig  `yaml:"monitor"`
 	Security SecurityConfig `yaml:"security"`
 }
@@ -37,10 +44,13 @@ type Config struct {
 // Defaults 返回带默认值的空配置。
 func Defaults() *Config {
 	compress := true
+	secure := true
 	c := &Config{
 		Listen:  ":443",
 		DataDir: "/var/lib/probe-server",
 	}
+	c.Auth.CookieSecure = &secure
+	c.Auth.JWTExpiryMin = 120
 	c.Monitor.HeartbeatTimeout = 90
 	c.Monitor.WSCompression = &compress
 	c.Security.RegisterRateLimit = 5
@@ -72,6 +82,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.DataDir == "" {
 		c.DataDir = d.DataDir
+	}
+	if c.Auth.CookieSecure == nil {
+		c.Auth.CookieSecure = d.Auth.CookieSecure
+	}
+	if c.Auth.JWTExpiryMin <= 0 {
+		c.Auth.JWTExpiryMin = d.Auth.JWTExpiryMin
 	}
 	if c.Monitor.HeartbeatTimeout <= 0 {
 		c.Monitor.HeartbeatTimeout = d.Monitor.HeartbeatTimeout

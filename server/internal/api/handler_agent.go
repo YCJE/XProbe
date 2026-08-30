@@ -12,21 +12,8 @@ import (
 
 	"github.com/YCJE/XProbe/internal/model"
 	"github.com/YCJE/XProbe/server/internal/pkg"
-	"github.com/YCJE/XProbe/server/internal/repository"
 	"github.com/YCJE/XProbe/server/internal/service"
 )
-
-// Deps 汇集 API 层依赖。
-type Deps struct {
-	Registry        *service.Registry
-	Hub             *service.Hub
-	Agents          *repository.AgentRepo
-	PingTargets     *repository.PingTargetRepo
-	CertFingerprint string
-	RegisterLimiter *pkg.Limiter // 5 次/分钟/IP
-	GlobalLimiter   *pkg.Limiter // 120 次/分钟/IP
-	WSCompression   bool
-}
 
 // HandleRegister POST /api/v1/agent/register(设计文档 4.2)。
 func (d Deps) HandleRegister(c *gin.Context) {

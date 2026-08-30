@@ -20,13 +20,21 @@ type AgentRepo struct {
 func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
 
 const agentCols = `id, token_hash, hostname, display_name, os, arch, agent_version,
-	host_fingerprint, ipv4, ipv6, created_at, last_seen, online`
+	host_fingerprint, ipv4, ipv6, region, country_code, isp, tag_ids,
+	expires_at, price_amount, price_currency, price_cycle, traffic_quota_bytes,
+	created_at, last_seen, online`
 
 func scanAgent(row interface{ Scan(...any) error }) (*model.Agent, error) {
 	var a model.Agent
 	var display sql.NullString
+	var fp, region, cc, isp, tagIDs sql.NullString
+	var priceCurrency, priceCycle sql.NullString
+	var expiresAt, quota sql.NullInt64
+	var priceAmount sql.NullFloat64
 	err := row.Scan(&a.ID, &a.TokenHash, &a.Hostname, &display, &a.OS, &a.Arch, &a.AgentVersion,
-		&a.HostFingerprint, &a.IPv4, &a.IPv6, &a.CreatedAt, &a.LastSeen, &a.Online)
+		&fp, &a.IPv4, &a.IPv6, &region, &cc, &isp, &tagIDs,
+		&expiresAt, &priceAmount, &priceCurrency, &priceCycle, &quota,
+		&a.CreatedAt, &a.LastSeen, &a.Online)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -34,6 +42,16 @@ func scanAgent(row interface{ Scan(...any) error }) (*model.Agent, error) {
 		return nil, err
 	}
 	a.DisplayName = display.String
+	a.HostFingerprint = fp.String
+	a.Region = region.String
+	a.CountryCode = cc.String
+	a.ISP = isp.String
+	a.TagIDs = tagIDs.String
+	a.ExpiresAt = expiresAt.Int64
+	a.PriceAmount = priceAmount.Float64
+	a.PriceCurrency = priceCurrency.String
+	a.PriceCycle = priceCycle.String
+	a.TrafficQuotaBytes = quota.Int64
 	return &a, nil
 }
 

@@ -53,7 +53,7 @@ func newTestRouter(t *testing.T, registerLimit int) *fixture {
 		RegisterLimiter: pkg.NewLimiter(registerLimit, time.Minute),
 		GlobalLimiter:   pkg.NewLimiter(1000, time.Minute),
 	}
-	return &fixture{router: NewRouter(d), registry: registry, hub: hub, agents: agents}
+	return &fixture{router: NewRouter(d, nil), registry: registry, hub: hub, agents: agents}
 }
 
 func postJSON(t *testing.T, r http.Handler, path string, body any) *httptest.ResponseRecorder {
