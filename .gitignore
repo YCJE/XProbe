@@ -1,0 +1,29 @@
+# Go
+*.exe
+*.test
+*.out
+/dist/
+/server/web/
+/server/assets/agents/
+
+# Node
+node_modules/
+/frontend/dist/
+
+# Data & secrets
+*.db
+*.db-wal
+*.db-shm
+/data/
+.env
+*.pem
+geoip/*.mmdb
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ZCode session artifacts
+.zcode/
