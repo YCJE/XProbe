@@ -84,6 +84,9 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 		api.GET("/public/:share_id", d.HandlePublicShare)
 	}
 
+	// Agent 二进制分发(一键安装自包含, 设计文档 8.3)
+	r.GET("/download/agent/:os/:arch", d.HandleDownloadAgent)
+
 	// 面板实时推送(JWT Cookie 认证)
 	r.GET("/ws/dashboard", d.JWTAuth(), d.HandleDashboardWS)
 

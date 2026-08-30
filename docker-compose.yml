@@ -1,0 +1,22 @@
+services:
+  xprobe-server:
+    build: .
+    image: ghcr.io/ycje/xprobe-server:latest
+    container_name: xprobe-server
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./data:/data
+      - ./certs:/certs:ro
+    environment:
+      - PROBE_JWT_SECRET=${PROBE_JWT_SECRET:?set PROBE_JWT_SECRET in .env}
+    # 安全加固(设计文档 10.7 M6)
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["--data-dir", "/data", "--config", "/dev/null"]

@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: 测试与安全门禁
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: 下载依赖
+        run: go mod download
+      - name: go vet
+        run: go vet ./...
+      - name: 全量测试
+        run: go test -timeout 600s ./...
+      - name: S4 审计 — Agent 二进制零 exec 符号
+        run: bash scripts/audit_noexec.sh
+      - name: gitleaks(密钥泄露扫描)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  build-linux:
+    name: 交叉编译 ${{ matrix.kind }}-${{ matrix.goarch }}${{ matrix.suffix }}
+    runs-on: ubuntu-latest
+    needs: [test, frontend]
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, kind: server, suffix: "" }
+          - { goos: linux, goarch: arm64, kind: server, suffix: "" }
+          - { goos: linux, goarch: amd64, kind: agent, suffix: "" }
+          - { goos: linux, goarch: arm64, kind: agent, suffix: "" }
+          - { goos: linux, goarch: arm, goarm: "7", kind: agent, suffix: v7 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: 构建
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          NAME="xprobe-${{ matrix.kind }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
+          LDFLAGS="-s -w -X github.com/YCJE/XProbe/internal/version.Version=${GITHUB_REF_NAME}"
+          if [ "${{ matrix.kind }}" = "server" ]; then
+            go build -trimpath -ldflags "$LDFLAGS" -o "$NAME" ./server/cmd/server
+          else
+            go build -trimpath -ldflags "$LDFLAGS" -o "$NAME" ./agent/cmd/agent
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bins-${{ matrix.kind }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          path: xprobe-*
+
+  release:
+    name: 发布
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [build-linux]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: 生成 SHA256
+        run: for f in xprobe-*; do sha256sum "$f" > "$f.sha256"; done
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            xprobe-server-*
+            xprobe-agent-*
