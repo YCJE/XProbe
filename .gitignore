@@ -27,3 +27,6 @@ Thumbs.db
 
 # ZCode session artifacts
 .zcode/
+
+bin/
+cover.out

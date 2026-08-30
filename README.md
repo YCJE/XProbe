@@ -27,6 +27,27 @@ Go 1.22+ · Gin · gorilla/websocket · SQLite (WAL) · React 18 + TypeScript ·
 ## 文档
 
 - [设计文档 v1.3](docs/server_probe_design_v1.3.md) —— 产品规格、架构、安全设计、部署运维、里程碑（M0-M6）与 AI 开发提示词
+- [设计系统 MASTER](docs/design-system/MASTER.md) —— 前端视觉唯一依据（双主题 tokens、WCAG 对比度实测、组件规格）
+
+## 构建
+
+需要 Go 1.22+（纯 Go、无 cgo、单命令交叉编译）：
+
+```bash
+make test          # 全量测试
+make build-linux   # v1 发布矩阵：linux amd64/arm64 Server + amd64/arm64/armv7 Agent
+make audit-noexec  # S4 审计门禁：Agent 代码零命令执行符号
+```
+
+## 开发进度
+
+- [x] M0 设计系统与视觉基线
+- [x] M1 基础架构 + 核心采集（Agent 采集器/流量状态持久化/SQLite 数据层/环形缓冲，TDD 全绿）
+- [ ] M2 Agent-Server 通信 + 注册上线
+- [ ] M3 实时监控 + 前端面板
+- [ ] M4 网络探测 + 历史数据
+- [ ] M5 告警 + 通知 + 安全加固
+- [ ] M6 部署 + 发布 + 文档
 
 ## License
 
