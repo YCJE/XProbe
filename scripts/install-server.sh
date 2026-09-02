@@ -17,14 +17,30 @@ case $ARCH in
 esac
 
 if [[ "$VERSION" == "latest" ]]; then
-    VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${BASE_URL}/latest" | grep -o '[^/]*$' || true)
+    # 通过 GitHub API 取最新发布版本(仓库无 Release 时给出可行动提示)
+    VERSION=$(curl -fsSL --connect-timeout 15 "https://api.github.com/repos/YCJE/XProbe/releases/latest" \
+        | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
 fi
-[[ -z "$VERSION" ]] && { echo "无法确定最新版本号, 请检查网络或用 XPROBE_VERSION=vX.Y.Z 指定"; exit 1; }
+if [[ -z "$VERSION" ]]; then
+    cat >&2 <<'MSG'
+无法确定最新版本: 仓库可能还没有发布任何 Release。
+可选方案:
+  1) 推送 v* 标签触发 CI 自动发布( git tag v0.1.0 && git push origin v0.1.0 )
+  2) 用 Docker 部署: docker compose up -d
+  3) 本地 make release 后手动上传二进制, 并以 XPROBE_VERSION=vX.Y.Z 指定版本重试
+MSG
+    exit 1
+fi
 URL="${BASE_URL}/download/${VERSION}/xprobe-server-linux-${ARCH}"
 echo "下载 XProbe Server ${VERSION}: ${URL}"
 curl -fsSL -o /tmp/xprobe-server "${URL}"
-curl -fsSL -o /tmp/xprobe-server.sha256 "${URL}.sha256" 2>/dev/null && \
-    echo "$(cat /tmp/xprobe-server.sha256)  /tmp/xprobe-server" | sha256sum -c -
+if curl -fsSL -o /tmp/xprobe-server.sha256 "${URL}.sha256" 2>/dev/null; then
+    EXPECT=$(cut -d' ' -f1 /tmp/xprobe-server.sha256)
+    ACTUAL=$(sha256sum /tmp/xprobe-server | cut -d' ' -f1)
+    [[ "$EXPECT" == "$ACTUAL" ]] || { echo "SHA256 校验失败: $EXPECT != $ACTUAL"; exit 1; }
+else
+    echo "警告: 服务器未提供 .sha256 校验文件, 跳过校验"
+fi
 chmod +x /tmp/xprobe-server
 mv /tmp/xprobe-server /usr/local/bin/xprobe-server
 
