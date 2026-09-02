@@ -48,6 +48,10 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: frontend/dist/
 
   build-linux:
     name: 交叉编译 ${{ matrix.kind }}-${{ matrix.goarch }}${{ matrix.suffix }}
@@ -67,6 +71,22 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: server/web
+        if: matrix.kind == 'server'
+      - name: 构建 Agent 三架构(供 Server 内嵌分发)
+        if: matrix.kind == 'server'
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          for A in amd64 arm64; do
+            mkdir -p server/assets/agents/linux-$A
+            GOOS=linux GOARCH=$A go build -trimpath -o server/assets/agents/linux-$A/xprobe-agent ./agent/cmd/agent
+          done
+          mkdir -p server/assets/agents/linux-armv7
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o server/assets/agents/linux-armv7/xprobe-agent ./agent/cmd/agent
       - name: 构建
         env:
           CGO_ENABLED: "0"

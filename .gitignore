@@ -3,12 +3,16 @@
 *.test
 *.out
 /dist/
-/server/web/
-/server/assets/agents/
 
 # Node
 node_modules/
 /frontend/dist/
+
+# embed 目录: 构建产物不入库; 占位文件保证 go:embed 模式在 fresh checkout 非空
+/server/web/*
+!/server/web/.placeholder
+/server/assets/agents/*/*
+!/server/assets/agents/*/.keep
 
 # Data & secrets
 *.db

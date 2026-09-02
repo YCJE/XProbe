@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	xprobe "github.com/YCJE/XProbe/server"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/YCJE/XProbe/server/internal/pkg"
@@ -116,6 +118,15 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 			if path == "" {
 				path = "index.html"
 			}
+			if _, err := webFS.Open("index.html"); err != nil {
+				// 前端未构建(源码 checkout): 非 API 路由回占位页
+				if strings.HasPrefix(c.Request.URL.Path, "/api/") || strings.HasPrefix(c.Request.URL.Path, "/ws/") {
+					c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+					return
+				}
+				c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(xprobe.PlaceholderHTML))
+				return
+			}
 			f, err := webFS.Open(path)
 			if err != nil {
 				// SPA fallback: 非 API 路由一律回 index.html
@@ -123,7 +134,7 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 					c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 					return
 				}
-				serveFile(c, webFS, "index.html")
+				c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(xprobe.PlaceholderHTML))
 				return
 			}
 			f.Close()

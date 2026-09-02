@@ -25,7 +25,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY internal/ ./internal/
 COPY server/ ./server/
-COPY --from=frontend /app/server/web ./server/web
+COPY --from=frontend /app/frontend/dist ./server/web
 COPY --from=agent /src/out/agents ./server/assets/agents
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -trimpath -ldflags "-s -w -X github.com/YCJE/XProbe/internal/version.Version=${VERSION}" \

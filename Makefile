@@ -6,6 +6,11 @@ LDFLAGS := -X github.com/YCJE/XProbe/internal/version.Version=$(VERSION)
 
 all: build-server build-agent
 
+build-frontend:
+	cd frontend && npm ci --no-audit --no-fund && npm run build
+	rm -rf server/web && mkdir -p server/web
+	cp -r frontend/dist/. server/web/
+
 build-server:
 	CGO_ENABLED=0 $(GO) build -ldflags "$(LDFLAGS)" -o bin/xprobe-server ./server/cmd/server
 
@@ -37,7 +42,7 @@ audit-noexec:
 	bash scripts/audit_noexec.sh
 
 # 本地出全矩阵发布物(与 CI 同口径): 复制 build-linux 产物 + SHA256
-release: build-linux
+release: build-frontend build-linux
 	mkdir -p bin/release
 	cp bin/linux-*/xprobe-* bin/release/
 	cd bin/release && for f in xprobe-*; do sha256sum $$f > $$f.sha256; done
