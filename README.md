@@ -59,6 +59,7 @@ scripts/backup.sh /var/lib/xprobe-server   # sqlite3 .backup 在线一致性快�
 
 - [设计文档 v1.3](docs/server_probe_design_v1.3.md) —— 产品规格、架构、安全设计、部署运维、里程碑(M0-M6)与 AI 开发提示词
 - [设计系统 MASTER](docs/design-system/MASTER.md) —— 前端视觉唯一依据(双主题 tokens、WCAG 对比度实测、组件规格)
+- [改进路线图](docs/ROADMAP.md) —— 与 Nezha/Komari/NodeGet 的功能对标与实施顺序
 
 ## 开发
 

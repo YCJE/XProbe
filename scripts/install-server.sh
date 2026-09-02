@@ -17,8 +17,9 @@ case $ARCH in
 esac
 
 if [[ "$VERSION" == "latest" ]]; then
-    VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${BASE_URL}/latest" | grep -o '[^/]*$')
+    VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${BASE_URL}/latest" | grep -o '[^/]*$' || true)
 fi
+[[ -z "$VERSION" ]] && { echo "无法确定最新版本号, 请检查网络或用 XPROBE_VERSION=vX.Y.Z 指定"; exit 1; }
 URL="${BASE_URL}/download/${VERSION}/xprobe-server-linux-${ARCH}"
 echo "下载 XProbe Server ${VERSION}: ${URL}"
 curl -fsSL -o /tmp/xprobe-server "${URL}"
@@ -44,6 +45,8 @@ fi
 
 id xprobe &>/dev/null || useradd -r -s /usr/sbin/nologin xprobe
 chown -R xprobe:xprobe "$DATA_DIR"
+# 服务以 xprobe 运行, 配置必须可读(审查 HIGH #2: 否则启动即崩溃循环)
+chown xprobe:xprobe "$CONFIG_DIR/config.yml"
 
 cat > /etc/systemd/system/xprobe-server.service << EOF
 [Unit]

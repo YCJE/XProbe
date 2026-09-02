@@ -26,8 +26,11 @@ export function DashboardPage() {
   );
 
   const online = servers.filter((s) => s.online).length;
-  const avg = (f: (s: typeof servers[0]) => number) =>
-    servers.length ? servers.reduce((acc, s) => acc + f(s), 0) / servers.length : 0;
+  // 均值只统计在线 Agent(NodeGet 口径; 离线 0 值会拉偏概览条)
+  const avg = (f: (s: typeof servers[0]) => number) => {
+    const online = servers.filter((s) => s.online);
+    return online.length ? online.reduce((acc, s) => acc + f(s), 0) / online.length : 0;
+  };
   const monthTraffic = servers.reduce(
     (acc, s) => acc + s.traffic_monthly.rx_bytes + s.traffic_monthly.tx_bytes, 0);
   const regions = [...new Set(servers.map((s) => s.country_code).filter(Boolean))];

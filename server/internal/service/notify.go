@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -122,11 +123,19 @@ func smtpSend(addr, host, user, password, from string, to []string, msg []byte) 
 		return err
 	}
 	defer conn.Close()
+	// I/O deadline: 防半开 SMTP 服务器泄漏 goroutine(审查 MEDIUM #7)
+	_ = conn.SetDeadline(time.Now().Add(60 * time.Second))
 	c, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return err
 	}
 	defer c.Quit()
+	// 服务器支持 STARTTLS 时升级(587 端口认证场景)
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if err := c.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return fmt.Errorf("smtp: starttls: %w", err)
+		}
+	}
 	if user != "" {
 		if err := c.Auth(smtp.PlainAuth("", user, password, host)); err != nil {
 			return err

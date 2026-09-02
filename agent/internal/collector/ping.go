@@ -17,10 +17,10 @@ import (
 
 // Ping 参数(设计文档 4.6, 超越 Nezha 的采样设计)。
 const (
-	ICMPCount    = 10          // 10 包采样
+	ICMPCount    = 10 // 10 包采样
 	ICMPInterval = 500 * time.Millisecond
 	ICMPTimeout  = 15 * time.Second
-	TCPCount     = 5           // 5 次采样
+	TCPCount     = 5 // 5 次采样
 	TCPTimeout   = 5 * time.Second
 )
 
@@ -200,8 +200,6 @@ func (p *PingCollector) tcp(ctx context.Context, ip, port string) ([]float64, in
 	}
 	return rtts, sent, recv, nil
 }
-
-func strings_TrimPrefix(s, prefix string) string { return strings.TrimPrefix(s, prefix) }
 
 func lastIndexOfColon(s string) int {
 	for i := len(s) - 1; i >= 0; i-- {

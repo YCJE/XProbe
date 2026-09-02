@@ -31,7 +31,9 @@ AGENT_URL="${SERVER_URL}/download/agent/linux/${ARCH}"
 echo "下载 Agent: ${AGENT_URL}"
 curl -fsSL -o /tmp/xprobe-agent "${AGENT_URL}"
 curl -fsSL -o /tmp/xprobe-agent.sha256 "${AGENT_URL}.sha256"
-echo "$(cat /tmp/xprobe-agent.sha256)  /tmp/xprobe-agent" | sha256sum -c -
+EXPECT=$(cut -d' ' -f1 /tmp/xprobe-agent.sha256)
+ACTUAL=$(sha256sum /tmp/xprobe-agent | cut -d' ' -f1)
+[[ "$EXPECT" == "$ACTUAL" ]] || { echo "SHA256 校验失败: $EXPECT != $ACTUAL"; exit 1; }
 chmod +x /tmp/xprobe-agent
 mv /tmp/xprobe-agent /usr/local/bin/xprobe-agent
 
@@ -87,6 +89,9 @@ Group=probe
 ExecStart=/usr/local/bin/xprobe-agent --config /etc/xprobe-agent/config.yml
 Restart=always
 RestartSec=5
+# NoNewPrivileges 下 file capabilities 失效, ICMP 用 AmbientCapabilities 授予
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

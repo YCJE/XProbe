@@ -34,8 +34,10 @@ func NewAggregator(hub *Hub, records *repository.RecordRepo, agents *repository.
 	}
 }
 
-// Run 主循环: 每 interval 聚合一次; UTC 日切换时聚合前一日; 每轮附带清理。
+// Run 主循环: 每 interval 聚合一次; UTC 日切换时聚合前一日(含宕机跨日回补); 每轮附带清理。
 func (a *Aggregator) Run(ctx context.Context, interval time.Duration) {
+	// 回补: 从日聚合表最新日期之后到昨日的缺口(审查 MEDIUM #6)
+	a.Backfill(ctx, time.Now().UTC())
 	lastDay := utcDay(time.Now())
 	for {
 		select {
@@ -146,6 +148,36 @@ func (a *Aggregator) cleanup(ctx context.Context, now time.Time) {
 	if _, err := a.records.Cleanup5m(ctx, now.Add(-a.retention5m).Unix()); err != nil {
 		log.Printf("[aggregator] cleanup 5m: %v", err)
 	}
+	before := utcDay(now.Add(-a.retentionDaily))
+	if _, err := a.records.CleanupDaily(ctx, before); err != nil {
+		log.Printf("[aggregator] cleanup daily: %v", err)
+	}
+}
+
+// Backfill 聚合日聚合表缺失的历史日(跨零点宕机/重启后的缺口)。
+func (a *Aggregator) Backfill(ctx context.Context, nowUTC time.Time) {
+	maxDate, err := a.records.MaxDailyDate(ctx)
+	if err != nil {
+		log.Printf("[aggregator] backfill: %v", err)
+		return
+	}
+	yesterday := nowUTC.AddDate(0, 0, -1)
+	var start time.Time
+	if maxDate == "" {
+		// 表为空: 无需回补(5m 数据在聚合时自然产生)
+		return
+	}
+	start, err = time.ParseInLocation("2006-01-02", maxDate, time.UTC)
+	if err != nil {
+		return
+	}
+	for d := start.AddDate(0, 0, 1); !d.After(yesterday); d = d.AddDate(0, 0, 1) {
+		if err := a.AggregateDay(ctx, d); err != nil {
+			log.Printf("[aggregator] backfill %s: %v", d.Format("2006-01-02"), err)
+			return
+		}
+		log.Printf("[aggregator] backfilled %s", d.Format("2006-01-02"))
+	}
 }
 
 // utcDay 返回 UTC 日标记 "2026-08-31"。
@@ -207,7 +239,9 @@ func mergeWorstPing(base []model.PingResult, add []model.PingResult) []model.Pin
 		found := false
 		for i := range out {
 			if out[i].Target == b.Target && out[i].IPVersion == b.IPVersion {
-				out[i].AvgLatency = (out[i].AvgLatency + b.AvgLatency) / 2
+				if b.Loss < 100 { // 全丢包哨兵值(60000)不折入日均, 避免拉偏
+					out[i].AvgLatency = (out[i].AvgLatency + b.AvgLatency) / 2
+				}
 				if b.MinLatency < out[i].MinLatency || out[i].MinLatency == 0 {
 					out[i].MinLatency = b.MinLatency
 				}
@@ -217,7 +251,9 @@ func mergeWorstPing(base []model.PingResult, add []model.PingResult) []model.Pin
 				if b.Loss > out[i].Loss {
 					out[i].Loss = b.Loss
 				}
-				out[i].Jitter = (out[i].Jitter + b.Jitter) / 2
+				if b.Loss < 100 {
+					out[i].Jitter = (out[i].Jitter + b.Jitter) / 2
+				}
 				found = true
 				break
 			}

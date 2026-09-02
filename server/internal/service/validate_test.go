@@ -2,6 +2,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/YCJE/XProbe/internal/model"
 )
@@ -10,7 +11,7 @@ func validReport() *model.Report {
 	u := 42.5
 	return &model.Report{
 		Type:      model.FrameReport,
-		Timestamp: 1718900000,
+		Timestamp: time.Now().Unix(), // 服务端 ±300s 窗口内(审查 MEDIUM #5)
 		Hostname:  "web-01",
 		Data: model.ReportData{
 			CPU:            model.CPUInfo{Usage: &u, Cores: 4},
@@ -22,7 +23,7 @@ func validReport() *model.Report {
 }
 
 func TestValidateReport_OK(t *testing.T) {
-	if err := ValidateReport(validReport()); err != nil {
+	if err := ValidateReport(validReport(), time.Now().Unix()); err != nil {
 		t.Fatalf("valid report rejected: %v", err)
 	}
 }
@@ -40,7 +41,7 @@ func TestValidateReport_Rejections(t *testing.T) {
 	for name, mutate := range cases {
 		r := validReport()
 		mutate(r)
-		if err := ValidateReport(r); err == nil {
+		if err := ValidateReport(r, time.Now().Unix()); err == nil {
 			t.Fatalf("%s: expected rejection", name)
 		}
 	}
@@ -49,7 +50,7 @@ func TestValidateReport_Rejections(t *testing.T) {
 func TestValidateReport_NilUsageAllowed(t *testing.T) {
 	r := validReport()
 	r.Data.CPU.Usage = nil // 首采样为空是合法状态(设计文档 4.1)
-	if err := ValidateReport(r); err != nil {
+	if err := ValidateReport(r, time.Now().Unix()); err != nil {
 		t.Fatalf("nil usage should pass: %v", err)
 	}
 }

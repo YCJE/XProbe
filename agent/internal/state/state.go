@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -101,12 +102,16 @@ func (t *Tracker) saveLocked() {
 	}
 	dir := filepath.Dir(t.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Printf("[state] mkdir %s: %v", dir, err)
 		return
 	}
 	// 原子写: 临时文件 + rename, 避免半写状态(权限 0600, S8)
 	tmp := t.path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		log.Printf("[state] write %s: %v", tmp, err) // 磁盘满等: 至少留痕, 流量累计仍内存有效
 		return
 	}
-	_ = os.Rename(tmp, t.path)
+	if err := os.Rename(tmp, t.path); err != nil {
+		log.Printf("[state] rename %s: %v", t.path, err)
+	}
 }

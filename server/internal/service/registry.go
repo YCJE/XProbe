@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"time"
 
 	"github.com/YCJE/XProbe/internal/model"
@@ -73,6 +74,17 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 	if len(req.RegisterCode) > 64 || len(req.Hostname) > 255 || len(req.HostFingerprint) != 64 {
 		return nil, ErrInvalidRegisterReq
 	}
+	// 字段净化(审查 MEDIUM #8): 防日志注入与存储膨胀
+	if !safeLabel(req.Hostname, 255) || !safeLabel(req.OS, 64) ||
+		!safeLabel(req.Arch, 32) || !safeLabel(req.AgentVersion, 32) {
+		return nil, ErrInvalidRegisterReq
+	}
+	if req.IPv4 != "" && net.ParseIP(req.IPv4) == nil {
+		return nil, ErrInvalidRegisterReq
+	}
+	if req.IPv6 != "" && net.ParseIP(req.IPv6) == nil {
+		return nil, ErrInvalidRegisterReq
+	}
 
 	codeHash := pkg.SHA256Hex(req.RegisterCode)
 	found, expired, err := s.codes.GetActive(ctx, codeHash, s.now().Unix())
@@ -137,6 +149,19 @@ func (s *Registry) ListCodes(ctx context.Context) ([]model.RegisterCodeInfo, err
 // DeleteCode 删除未使用的注册码。
 func (s *Registry) DeleteCode(ctx context.Context, hash string) error {
 	return s.codes.Delete(ctx, hash)
+}
+
+// safeLabel 可打印安全标签: 排除控制字符与空白(防日志注入), 限长。
+func safeLabel(s string, max int) bool {
+	if len(s) > max {
+		return false
+	}
+	for _, c := range s {
+		if c < 0x20 || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func randomCode(n int) (string, error) {

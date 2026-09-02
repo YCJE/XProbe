@@ -17,13 +17,18 @@ func validateErr(field string) error {
 	return fmt.Errorf("%w: %s out of range", ErrInvalidFrame, field)
 }
 
-// ValidateReport 校验 report 帧数值范围。
-func ValidateReport(r *model.Report) error {
+// ValidateReport 校验 report 帧数值范围。now 为服务端时间(Unix 秒):
+// Timestamp 必须在 ±300s 内(审查 MEDIUM #5: 防时钟偏移破坏聚合水位线 + 防重放)。
+func ValidateReport(r *model.Report, now int64) error {
 	if r == nil {
 		return ErrInvalidFrame
 	}
 	if r.Hostname == "" || len(r.Hostname) > 255 {
 		return validateErr("hostname")
+	}
+	diff := r.Timestamp - now
+	if diff < -300 || diff > 300 {
+		return validateErr("timestamp")
 	}
 	if r.Data.CPU.Usage != nil {
 		if *r.Data.CPU.Usage < 0 || *r.Data.CPU.Usage > 100 {

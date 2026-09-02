@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -43,7 +44,11 @@ func runResetPassword(args []string) {
 		cfg.DataDir = *dataDir
 	}
 
-	db, err := repository.Open(cfg.DataDir + "/xprobe.db")
+	dbPath := filepath.Join(cfg.DataDir, "xprobe.db")
+	if _, err := os.Stat(dbPath); errors.Is(err, os.ErrNotExist) {
+		log.Fatalf("数据库不存在: %s (确认 --data-dir/--config 指向实际部署目录)", dbPath)
+	}
+	db, err := repository.Open(dbPath)
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}

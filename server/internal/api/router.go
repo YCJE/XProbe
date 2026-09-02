@@ -15,6 +15,13 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 	r := gin.New()
 	r.SetTrustedProxies(nil) // ClientIP 取 RemoteAddr, 防 X-Forwarded-For 伪造绕过限速(直连部署默认; 反代后须配置真实 CIDR)
 	r.Use(gin.Recovery(), pkg.SecurityHeaders())
+	// 全局请求体上限 1MB(审查 MEDIUM #10: 防超大 JSON 打满内存)
+	r.Use(func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
+		}
+		c.Next()
+	})
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
@@ -85,8 +92,8 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 		api.GET("/public/:share_id", d.HandlePublicShare)
 	}
 
-	// Agent 二进制分发(一键安装自包含, 设计文档 8.3)
-	r.GET("/download/agent/:os/:arch", d.HandleDownloadAgent)
+	// Agent 二进制分发(一键安装自包含, 设计文档 8.3); 无认证端点单独限速(审查 MEDIUM #9)
+	r.GET("/download/agent/:os/:arch", RateLimit(d.DownloadLimiter), d.HandleDownloadAgent)
 
 	// 面板实时推送(JWT Cookie 认证)
 	r.GET("/ws/dashboard", d.JWTAuth(), d.HandleDashboardWS)

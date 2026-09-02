@@ -198,18 +198,24 @@ func (c *Client) session(ctx context.Context, conn *websocket.Conn) {
 			if c.PingCollect == nil {
 				continue
 			}
-			results, perr := c.PingCollect(ctx)
-			if perr != nil {
-				c.logf("ping collect: %v", perr)
-				continue
-			}
-			if len(results) == 0 {
-				continue
-			}
-			if err := send(model.PingReport{Type: model.FramePingResult, Data: results}); err != nil {
-				c.logf("send ping_result: %v", err)
-				return
-			}
+			// 探测在独立 goroutine 执行(一轮最坏约 30-60s), 不阻塞 3s 上报与 30s 心跳(审查 HIGH #3)
+			go func() {
+				results, perr := c.PingCollect(ctx)
+				if perr != nil {
+					c.logf("ping collect: %v", perr)
+					return
+				}
+				if len(results) == 0 {
+					return
+				}
+				if err := send(model.PingReport{Type: model.FramePingResult, Data: results}); err != nil {
+					c.logf("send ping_result: %v", err)
+					select {
+					case errCh <- err:
+					default:
+					}
+				}
+			}()
 		}
 	}
 }

@@ -129,6 +129,7 @@ func main() {
 		Share:           shareRepo,
 		RegisterLimiter: pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
 		LoginLimiter:    pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
+		DownloadLimiter: pkg.NewLimiter(10, time.Minute),
 		GlobalLimiter:   pkg.NewLimiter(cfg.Security.GlobalRateLimit, time.Minute),
 		CertFingerprint: certFingerprint,
 		WSCompression:   *cfg.Monitor.WSCompression,

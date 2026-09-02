@@ -126,7 +126,7 @@ func (h *Hub) Detach(id int64, c WSConn) {
 
 // HandleReport 校验并写入 report 帧; 频率过快拒绝(防刷, 设计文档 7.6)。
 func (h *Hub) HandleReport(id int64, r *model.Report) error {
-	if err := ValidateReport(r); err != nil {
+	if err := ValidateReport(r, h.now().Unix()); err != nil {
 		return err
 	}
 	h.mu.Lock()

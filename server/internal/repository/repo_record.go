@@ -116,6 +116,25 @@ func (r *RecordRepo) Cleanup5m(ctx context.Context, before int64) (int64, error)
 	return res.RowsAffected()
 }
 
+// CleanupDaily 清理超期日聚合数据(审查 HIGH #4: 此前 retentionDaily 无清理调用)。
+func (r *RecordRepo) CleanupDaily(ctx context.Context, beforeDay string) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM metric_records_daily WHERE date < ?`, beforeDay)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// MaxDailyDate 返回日聚合表中最新日期(回补起点, 审查 MEDIUM #6)。
+func (r *RecordRepo) MaxDailyDate(ctx context.Context) (string, error) {
+	var d sql.NullString
+	err := r.db.QueryRowContext(ctx, `SELECT MAX(date) FROM metric_records_daily`).Scan(&d)
+	if err != nil {
+		return "", err
+	}
+	return d.String, nil // 无数据时 ""
+}
+
 // UpsertTraffic 月度流量归档(取当月最大累计值, 设计文档 4.4)。
 func (r *RecordRepo) UpsertTraffic(ctx context.Context, agentID int64, t model.TrafficMonthly) error {
 	_, err := r.db.ExecContext(ctx, `INSERT INTO traffic_monthly (agent_id, month, rx_bytes, tx_bytes)

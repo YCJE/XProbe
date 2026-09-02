@@ -17,6 +17,7 @@ type Deps struct {
 	PingTargets     *repository.PingTargetRepo
 	Records         *repository.RecordRepo
 	RegisterLimiter *pkg.Limiter // 5 次/分钟/IP
+	DownloadLimiter *pkg.Limiter // /download 独立限速(审查 MEDIUM #9)
 	// 管理面
 	Auth     *service.Auth
 	JWT      *pkg.JWTManager

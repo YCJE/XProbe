@@ -196,10 +196,10 @@ func (e *AlertEngine) transition(ctx context.Context, rule *model.AlertRule, age
 	now := e.now()
 
 	type action struct {
-		status    string
-		value     *float64
-		detail    string
-		notify    bool
+		status string
+		value  *float64
+		detail string
+		notify bool
 	}
 	var act action
 
