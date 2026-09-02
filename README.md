@@ -52,13 +52,28 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-ag
 
 > 注:源码 checkout 直接编译的 Server 不含前端面板(访问显示占位页),官方 Release/Docker 产物已内嵌;本地开发请先 `make build-frontend`。
 
-### 4. 数据备份
+### 4. 升级 / 卸载
+
+```bash
+# Server 升级(自动备份数据库; 旧二进制保留 .bak 可回滚)
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/upgrade-server.sh | bash
+
+# Agent 升级(配置/install_salt 不动, 主机指纹不变)
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/upgrade-agent.sh | bash -s -- --server https://your-server.com
+
+# 卸载(默认保留数据, 重装自动接回; 加 --purge 彻底清除)
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-agent.sh | bash
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-agent.sh | bash -s -- --purge
+```
+
+忘记管理员密码:`xprobe-server reset-password --username admin`(重置后吊销全部会话)。
+
+### 5. 数据备份
 
 ```bash
 scripts/backup.sh /var/lib/xprobe-server   # sqlite3 .backup 在线一致性快照(WAL 下禁止直接 cp)
 ```
-
-忘记管理员密码:`xprobe-server reset-password --username admin`(重置后吊销全部会话)。
 
 ## 文档
 
