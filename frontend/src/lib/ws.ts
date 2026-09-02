@@ -28,9 +28,17 @@ export function useDashboardWS() {
           if (msg.type === "dashboard_update" && msg.servers) applyPush(msg.servers);
         } catch { /* 忽略坏帧 */ }
       };
-      ws.onclose = () => {
+      ws.onclose = async () => {
         setConnected(false);
         if (closed) return;
+        // 会话过期(登录已失效): 探活一次 REST, 401 则回登录页并停止重连
+        try {
+          const r = await fetch("/api/v1/auth/sessions", { credentials: "same-origin" });
+          if (r.status === 401) {
+            window.location.hash = "#/login";
+            return;
+          }
+        } catch { /* 网络错误时继续重连 */ }
         const delay = Math.min(1000 * 2 ** retry.current++, 15000);
         timer.current = setTimeout(connect, delay);
       };

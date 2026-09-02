@@ -77,10 +77,12 @@ func (r *AgentRepo) UpdateMeta(ctx context.Context, id int64, m model.UpdateMeta
 	}
 	res, err := r.db.ExecContext(ctx, `UPDATE agents SET
 		display_name = ?, region = ?, country_code = ?, isp = ?, tag_ids = ?,
-		expires_at = ?, price_amount = ?, price_currency = ?, price_cycle = ?, traffic_quota_bytes = ?
+		expires_at = ?, price_amount = ?, price_currency = ?, price_cycle = ?, traffic_quota_bytes = ?,
+		geo_lat = ?, geo_lon = ?
 		WHERE id = ?`,
 		m.DisplayName, m.Region, m.CountryCode, m.ISP, tags,
-		m.ExpiresAt, m.PriceAmount, m.PriceCurrency, m.PriceCycle, m.TrafficQuotaBytes, id)
+		m.ExpiresAt, m.PriceAmount, m.PriceCurrency, m.PriceCycle, m.TrafficQuotaBytes,
+		m.GeoLat, m.GeoLon, id)
 	if err != nil {
 		return err
 	}

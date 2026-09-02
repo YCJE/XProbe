@@ -85,6 +85,7 @@ func main() {
 	alerts := repository.NewAlertRepo(db)
 	notifyChannels := repository.NewNotifyChannelRepo(db)
 	shareRepo := repository.NewSharePageRepo(db)
+	services := repository.NewServiceRepo(db)
 	if err := pingTargets.EnsureSeedDefaults(context.Background(), time.Now().Unix()); err != nil {
 		log.Fatalf("seed ping targets: %v", err)
 	}
@@ -112,6 +113,12 @@ func main() {
 	})
 	authSvc := service.NewAuth(admins, sessions, jwtMgr, pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute))
 	notifier := service.NewNotifier(notifyChannels)
+	serviceChecker := service.NewServiceChecker(services, notifier)
+
+	registerLimiter := pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute)
+	loginLimiter := pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute)
+	globalLimiter := pkg.NewLimiter(cfg.Security.GlobalRateLimit, time.Minute)
+	downloadLimiter := pkg.NewLimiter(10, time.Minute)
 
 	router := api.NewRouter(api.Deps{
 		Registry:        registry,
@@ -127,10 +134,12 @@ func main() {
 		NotifyChannels:  notifyChannels,
 		Notifier:        notifier,
 		Share:           shareRepo,
-		RegisterLimiter: pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
-		LoginLimiter:    pkg.NewLimiter(cfg.Security.RegisterRateLimit, time.Minute),
-		DownloadLimiter: pkg.NewLimiter(10, time.Minute),
-		GlobalLimiter:   pkg.NewLimiter(cfg.Security.GlobalRateLimit, time.Minute),
+		Services:        services,
+		Checker:         serviceChecker,
+		RegisterLimiter: registerLimiter,
+		LoginLimiter:    loginLimiter,
+		DownloadLimiter: downloadLimiter,
+		GlobalLimiter:   globalLimiter,
 		CertFingerprint: certFingerprint,
 		WSCompression:   *cfg.Monitor.WSCompression,
 	}, mustWebFS())
@@ -139,8 +148,12 @@ func main() {
 	sweepCtx, stopSweep := context.WithCancel(context.Background())
 	defer stopSweep()
 	go hub.RunSweeper(sweepCtx, 15*time.Second)
+	for _, l := range []*pkg.Limiter{registerLimiter, loginLimiter, globalLimiter, downloadLimiter} {
+		go l.StartGC(sweepCtx, time.Minute)
+	}
 	aggregator := service.NewAggregator(hub, records, agents)
 	go aggregator.Run(sweepCtx, 5*time.Minute)
+	go serviceChecker.Run(sweepCtx)
 	alertEngine := service.NewAlertEngine(alerts, agents, hub, notifier)
 	if err := alertEngine.Restore(sweepCtx); err != nil {
 		log.Printf("[alert] restore: %v", err)

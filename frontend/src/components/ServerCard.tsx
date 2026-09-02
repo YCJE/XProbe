@@ -1,8 +1,15 @@
-import { formatBytes, formatSpeed, formatUptime, usageColor, expiresInDays, formatDate, currencySymbol } from "../lib/format";
+import { formatBytes, formatSpeed, formatUptime, expiresInDays, formatDate, currencySymbol } from "../lib/format";
 import type { ServerInfo } from "../lib/types";
 import { Badge, GlassCard, StatusDot } from "./ui";
 import { RingProgress } from "./RingProgress";
 import { LatencyGrid } from "./LatencyGrid";
+
+export interface CardLayout {
+  density: "comfortable" | "compact";
+  showLatency: boolean;
+  showTraffic: boolean;
+  showExpiry: boolean;
+}
 
 const flagEmoji = (cc: string) =>
   cc && cc.length === 2
@@ -10,23 +17,26 @@ const flagEmoji = (cc: string) =>
     : "🌐";
 
 /** 服务器卡片(设计系统 MASTER §6 + 设计文档 6.4.2)。 */
-export function ServerCard({ s, tagMap, onClick }: {
+export function ServerCard({ s, tagMap, onClick, layout }: {
   s: ServerInfo;
   tagMap: Map<number, import("../lib/types").Tag>;
   onClick?: () => void;
+  layout?: CardLayout;
 }) {
   const name = s.display_name || s.hostname;
   const memPct = s.mem_total ? (s.mem_used / s.mem_total) * 100 : 0;
   const diskPct = s.disk?.length
-    ? (s.disk.reduce((m, d) => Math.max(m, d.total ? d.used / d.total : 0), 0) as number) * 100
+    ? Math.max(...s.disk.map((d) => (d.total ? (d.used / d.total) * 100 : 0)))
     : 0;
-  const rx = s.rx_speed, tx = s.tx_speed;
   const quotaPct = s.traffic_quota_bytes > 0
-    ? (s.traffic_monthly.rx_bytes + s.traffic_monthly.tx_bytes) / s.traffic_quota_bytes * 100
+    ? ((s.traffic_monthly.rx_bytes + s.traffic_monthly.tx_bytes) / s.traffic_quota_bytes) * 100
     : 0;
   const days = expiresInDays(s.expires_at);
   const expiredSoon = days <= 7;
   const expiredWarn = days <= 30;
+  const showTraffic = !layout || layout.showTraffic;
+  const showLatency = !layout || layout.showLatency;
+  const showExpiry = !layout || layout.showExpiry;
 
   return (
     <GlassCard hover onClick={onClick} className={`flex flex-col gap-3 ${!s.online ? "opacity-60" : ""}`}>
@@ -57,47 +67,64 @@ export function ServerCard({ s, tagMap, onClick }: {
       </div>
 
       {/* 流量区 */}
-      <div className="flex items-center justify-between text-xs tnum">
-        <span style={{ color: "var(--link)" }}>↓ {formatSpeed(rx)}</span>
-        <span style={{ color: "var(--success)" }}>↑ {formatSpeed(tx)}</span>
-      </div>
-      <div>
-        <div className="mb-1 flex justify-between text-xs text-muted tnum">
-          <span>
-            月流量 {formatBytes(s.traffic_monthly.rx_bytes + s.traffic_monthly.tx_bytes)}
-            {s.traffic_quota_bytes > 0 && ` / ${formatBytes(s.traffic_quota_bytes)}`}
+      {showTraffic && (
+        <>
+          <div className="flex items-center justify-between text-xs tnum">
+            <span style={{ color: "var(--link)" }}>↓ {formatSpeed(s.rx_speed)}</span>
+            <span style={{ color: "var(--success)" }}>↑ {formatSpeed(s.tx_speed)}</span>
+          </div>
+          <div>
+            <div className="mb-1 flex justify-between text-xs text-muted tnum">
+              <span>
+                月流量 {formatBytes(s.traffic_monthly.rx_bytes + s.traffic_monthly.tx_bytes)}
+                {s.traffic_quota_bytes > 0 && ` / ${formatBytes(s.traffic_quota_bytes)}`}
+              </span>
+              {quotaPct >= 80 && (
+                <span style={{ color: quotaPct >= 100 ? "var(--danger)" : "var(--warning)" }}>
+                  {quotaPct.toFixed(0)}%
+                </span>
+              )}
+            </div>
+            <div className="h-1.5 rounded-full" style={{ background: "var(--card-border)" }}>
+              <div
+                className="h-1.5 rounded-full transition-[width] duration-300"
+                style={{
+                  width: `${Math.min(quotaPct, 100)}%`,
+                  background: quotaPct >= 100 ? "var(--danger)" : quotaPct >= 80 ? "var(--warning)" : "var(--primary)",
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 延迟格子(卡片内嵌小格) */}
+      {showLatency && (
+        <LatencyGrid
+          online={s.online}
+          lines={Object.keys(s.ping ?? {}).map((name) => ({
+            name,
+            points: [{ ts: s.last_seen, avg: s.ping[name], loss: s.ping_loss?.[name] ?? 0, jitter: 0, min: 0, max: 0 }],
+          }))}
+        />
+      )}
+
+      {/* 尾部: 到期与费用 */}
+      {showExpiry && (
+        <div className="flex justify-between border-t border-card-border pt-2 text-xs tnum">
+          <span style={{ color: expiredSoon ? "var(--danger)" : expiredWarn ? "var(--warning)" : "var(--muted)" }}>
+            {s.expires_at
+              ? `到期 ${formatDate(s.expires_at)}${days !== Infinity ? ` (余${days}天${expiredSoon ? "⚠" : ""})` : ""}`
+              : "长期有效"}
           </span>
-          {quotaPct >= 80 && (
-            <span style={{ color: quotaPct >= 100 ? "var(--danger)" : "var(--warning)" }}>
-              {quotaPct.toFixed(0)}%
+          {s.price_amount > 0 && (
+            <span className="text-muted">
+              {currencySymbol[s.price_currency] ?? ""}
+              {s.price_amount}/{s.price_cycle === "yearly" ? "年" : "月"}
             </span>
           )}
         </div>
-        <div className="h-1.5 rounded-full" style={{ background: "var(--card-border)" }}>
-          <div
-            className="h-1.5 rounded-full transition-[width] duration-300"
-            style={{
-              width: `${Math.min(quotaPct, 100)}%`,
-              background: quotaPct >= 100 ? "var(--danger)" : quotaPct >= 80 ? "var(--warning)" : "var(--primary)",
-            }}
-          />
-        </div>
-      </div>
-
-      {/* 延迟格子(卡片内嵌小格) */}
-      <LatencyGrid ping={s.ping} loss={s.ping_loss} online={s.online} rows={3} />
-
-      {/* 尾部: 到期与费用 */}
-      <div className="flex justify-between border-t border-card-border pt-2 text-xs tnum">
-        <span style={{ color: expiredSoon ? "var(--danger)" : expiredWarn ? "var(--warning)" : "var(--muted)" }}>
-          {s.expires_at ? `到期 ${formatDate(s.expires_at)}${days !== Infinity ? ` (余${days}天${expiredSoon ? "⚠" : ""})` : ""}` : "长期有效"}
-        </span>
-        {s.price_amount > 0 && (
-          <span className="text-muted">
-            {currencySymbol[s.price_currency] ?? ""}{s.price_amount}/{s.price_cycle === "yearly" ? "年" : "月"}
-          </span>
-        )}
-      </div>
+      )}
     </GlassCard>
   );
 }

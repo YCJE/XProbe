@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/YCJE/XProbe/internal/model"
 )
@@ -133,6 +134,28 @@ func (r *RecordRepo) MaxDailyDate(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return d.String, nil // 无数据时 ""
+}
+
+// ListAllTraffic 全部 Agent 的月度流量行(报表用, 近 N 月)。
+func (r *RecordRepo) ListAllTraffic(ctx context.Context, months int) ([]model.TrafficReportRow, error) {
+	cutoff := time.Now().AddDate(0, 0, -months*31).UTC().Format("2006-01")
+	rows, err := r.db.QueryContext(ctx, `SELECT t.agent_id,
+			COALESCE(a.display_name, a.hostname), t.month, t.rx_bytes, t.tx_bytes
+		FROM traffic_monthly t LEFT JOIN agents a ON a.id = t.agent_id
+		WHERE t.month >= ? ORDER BY t.month, t.agent_id`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.TrafficReportRow{}
+	for rows.Next() {
+		var r model.TrafficReportRow
+		if err := rows.Scan(&r.AgentID, &r.Name, &r.Month, &r.Rx, &r.Tx); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // UpsertTraffic 月度流量归档(取当月最大累计值, 设计文档 4.4)。

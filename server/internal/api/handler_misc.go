@@ -73,6 +73,33 @@ func (d Deps) HandleDeletePingTarget(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
+// HandleTrafficReport GET /api/v1/report/traffic?months=12: 全部 Agent 月度流量行。
+func (d Deps) HandleTrafficReport(c *gin.Context) {
+	months := 12
+	if m := c.Query("months"); m != "" {
+		if n := atoiSafe(m); n > 0 && n <= 36 {
+			months = n
+		}
+	}
+	rows, err := d.Records.ListAllTraffic(c.Request.Context(), months)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows})
+}
+
+func atoiSafe(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
+}
+
 // HandleServerTraffic GET /api/v1/servers/:id/traffic(月度流量归档)。
 func (d Deps) HandleServerTraffic(c *gin.Context) {
 	id, ok := pathID(c)

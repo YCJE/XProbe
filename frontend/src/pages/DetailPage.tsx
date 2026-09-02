@@ -4,7 +4,8 @@ import * as echarts from "echarts/core";
 import { LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { api, type DetailResp, type HistoryResponse } from "../lib/api";
+import { api, type DetailResp, type PingRowsResp } from "../lib/api";
+import type { HistoryResponse } from "../lib/types";
 import type { ServerInfo } from "../lib/types";
 import { formatBytes, formatSpeed, latencyVar, formatUptime } from "../lib/format";
 import { GlassCard, StatusDot } from "../components/ui";
@@ -20,11 +21,20 @@ export function DetailPage() {
   const nav = useNavigate();
   const [detail, setDetail] = useState<DetailResp | null>(null);
   const [history, setHistory] = useState<HistoryResponse | null>(null);
+  const [pingRows, setPingRows] = useState<PingRowsResp["rows"]>([]);
   const [range, setRange] = useState<(typeof RANGES)[number]>("1h");
 
   useEffect(() => {
     api.get<DetailResp>(`/api/v1/servers/${id}`).then(setDetail).catch(() => nav("/dashboard"));
   }, [id, nav]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      api.get<PingRowsResp>(`/api/v1/servers/${id}/ping-history`).then((r) => setPingRows(r.rows)).catch(() => undefined);
+    }, 60_000);
+    api.get<PingRowsResp>(`/api/v1/servers/${id}/ping-history`).then((r) => setPingRows(r.rows)).catch(() => undefined);
+    return () => clearInterval(t);
+  }, [id]);
 
   useEffect(() => {
     api.get<HistoryResponse>(`/api/v1/servers/${id}/history?range=${range}`).then(setHistory);
@@ -75,7 +85,7 @@ export function DetailPage() {
 
       <GlassCard className="mb-4">
         <h3 className="mb-3 text-sm font-semibold">延迟格子 (最近 60 分钟)</h3>
-        <LatencyGrid lines={detailPingLines(detail)} maxBars={60} online={s.online} />
+        <LatencyGrid lines={detailPingLines(detail, pingRows)} maxBars={60} online={s.online} />
         {Object.keys(s.ping ?? {}).length === 0 && (
           <p className="text-xs text-muted">暂无探测数据(M4 接入后展示)</p>
         )}
@@ -110,8 +120,23 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function detailPingLines(detail: DetailResp): { name: string; points: LatencyPoint[] }[] {
+function detailPingLines(detail: DetailResp, rows: PingRowsResp["rows"]): { name: string; points: LatencyPoint[] }[] {
   const s = detail.server;
+  if (rows.length > 0) {
+    // 真实历史: 每行一个目标(按行内首次出现命名), 60 分钟 60 点
+    const byName = new Map<string, LatencyPoint[]>();
+    for (const row of rows) {
+      for (const p of row) {
+        const name = p.name || p.target;
+        if (!byName.has(name)) byName.set(name, []);
+        byName.get(name)!.push({
+          ts: detail.server.last_seen, // 行内无逐点时间戳, 统一以行序展示
+          avg: p.avg_latency, loss: p.loss, jitter: p.jitter, min: p.min_latency, max: p.max_latency,
+        });
+      }
+    }
+    return [...byName.entries()].map(([name, points]) => ({ name, points }));
+  }
   return Object.keys(s.ping ?? {}).map((name) => ({
     name,
     points: [{ ts: Date.now() / 1000, avg: s.ping[name], loss: s.ping_loss?.[name] ?? 0, jitter: 0, min: 0, max: 0 }],

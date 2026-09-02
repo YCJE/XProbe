@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS agents (
     price_currency TEXT,
     price_cycle TEXT,
     traffic_quota_bytes INTEGER,          -- 0=不限
+    geo_lat REAL,                         -- 手动坐标(NodeGet 地图, v1.4; 空=按国家质心)
+    geo_lon REAL,
     last_seen INTEGER,
     online INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -168,4 +170,28 @@ CREATE TABLE IF NOT EXISTS share_pages (
     footer_text TEXT,
     agent_ids TEXT,
     created_at INTEGER NOT NULL
+);
+
+-- 服务监控拨测(Nezha 对标, v1.4): Server 主动对服务端点探活, 不涉及 Agent
+CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,                   -- http / tcp / icmp
+    target TEXT NOT NULL,                 -- http: 完整 URL; tcp: host; icmp: host
+    port INTEGER,                         -- tcp/icmp 端口(tcp 必填, icmp 可空)
+    path TEXT,                            -- http 路径(可空)
+    interval_sec INTEGER DEFAULT 60,
+    enabled INTEGER DEFAULT 1,
+    notify_channel_id INTEGER,
+    created_at INTEGER NOT NULL
+);
+
+-- 服务可用性日汇总(在线率状态页数据源)
+CREATE TABLE IF NOT EXISTS service_daily (
+    service_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    total INTEGER NOT NULL,
+    ok INTEGER NOT NULL,
+    up_ratio REAL NOT NULL,
+    UNIQUE(service_id, date)
 );

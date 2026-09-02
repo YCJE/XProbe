@@ -51,6 +51,7 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 			authed.GET("/servers", d.HandleListServers)
 			authed.GET("/servers/:id", d.HandleServerDetail)
 			authed.GET("/servers/:id/history", d.HandleHistory)
+			authed.GET("/servers/:id/ping-history", d.HandlePingHistory)
 			authed.GET("/servers/:id/traffic", d.HandleServerTraffic)
 			authed.PUT("/servers/:id/meta", d.HandleUpdateMeta)
 			authed.DELETE("/servers/:id", d.HandleDeleteServer)
@@ -67,7 +68,17 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 			authed.DELETE("/notify/channels/:id", d.HandleDeleteChannel)
 			authed.POST("/notify/channels/:id/test", d.HandleTestChannel)
 			authed.GET("/config/share", d.HandleGetShare)
+
+			// 服务监控(Nezha 对标)
+			authed.GET("/services", d.HandleListServices)
+			authed.POST("/services", d.HandleCreateService)
+			authed.PUT("/services/:id", d.HandleUpdateService)
+			authed.DELETE("/services/:id", d.HandleDeleteService)
+			authed.POST("/services/:id/test", d.HandleTestService)
 			authed.PUT("/config/share", d.HandleSaveShare)
+
+			// 报表(月度流量汇总)
+			authed.GET("/report/traffic", d.HandleTrafficReport)
 
 			// 标签
 			authed.GET("/tags", d.HandleListTags)

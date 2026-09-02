@@ -23,6 +23,8 @@ type Agent struct {
 	PriceCurrency     string
 	PriceCycle        string
 	TrafficQuotaBytes int64
+	GeoLat            *float64
+	GeoLon            *float64
 
 	CreatedAt int64
 	LastSeen  int64

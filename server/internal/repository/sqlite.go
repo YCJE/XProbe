@@ -31,10 +31,19 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Migrate 创建全部表与索引(IF NOT EXISTS, 幂等)。
+// Migrate 创建全部表与索引(IF NOT EXISTS, 幂等); 随后对旧库追加增量列(ALTER 失败视为已存在)。
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	for _, alt := range incrementalALTERs {
+		_, _ = db.ExecContext(ctx, alt) // duplicate column → 忽略
+	}
 	return nil
+}
+
+// incrementalALTERs 旧库升级(v1.4 地图坐标列)。
+var incrementalALTERs = []string{
+	"ALTER TABLE agents ADD COLUMN geo_lat REAL",
+	"ALTER TABLE agents ADD COLUMN geo_lon REAL",
 }

@@ -25,7 +25,10 @@ interface PublicPayload {
   title: string;
   logo_url: string;
   footer_text: string;
-  servers: PublicServer[];
+  servers: PublicServer[];  services?: {
+    id: number; name: string; type: string; up: boolean; latency_ms: number;
+    uptime_45d: number; recent?: { ts: number; ok: boolean; latency_ms: number }[];
+  }[];
 }
 
 const flagEmoji = (cc: string) =>
@@ -113,6 +116,31 @@ export function SharePage() {
             );
           })}
         </div>
+      )}
+      {data.services && data.services.length > 0 && (
+        <GlassCard className="mt-4">
+          <h2 className="mb-3 text-sm font-semibold">服务状态</h2>
+          <div className="flex flex-col gap-3">
+            {data.services.map((svc) => (
+              <div key={svc.id} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <StatusDot online={svc.up} />
+                  {svc.name}
+                </span>
+                <span className="flex items-center gap-3 text-xs tnum">
+                  {svc.up && <span style={{ color: "var(--success)" }}>{svc.latency_ms.toFixed(0)}ms</span>}
+                  <span className="text-muted">45 天在线率 {svc.uptime_45d.toFixed(1)}%</span>
+                  <span className="flex gap-[2px]">
+                    {(svc.recent ?? []).slice(-32).map((r, i) => (
+                      <div key={i} className="h-1.5 w-1.5 rounded-sm"
+                        style={{ background: r.ok ? "var(--success)" : "var(--danger)", opacity: 0.8 }} />
+                    ))}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
       )}
       {data.footer_text && (
         <footer className="mt-8 text-center text-xs text-muted">{data.footer_text}</footer>

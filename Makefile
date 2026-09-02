@@ -36,5 +36,12 @@ cover:
 audit-noexec:
 	bash scripts/audit_noexec.sh
 
+# 本地出全矩阵发布物(与 CI 同口径): 复制 build-linux 产物 + SHA256
+release: build-linux
+	mkdir -p bin/release
+	cp bin/linux-*/xprobe-* bin/release/
+	cd bin/release && for f in xprobe-*; do sha256sum $$f > $$f.sha256; done
+	@echo "release artifacts in bin/release/"
+
 clean:
 	rm -rf bin cover.out

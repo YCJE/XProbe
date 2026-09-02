@@ -25,6 +25,8 @@ type Deps struct {
 	Tags     *repository.TagRepo
 	// 告警与通知(M5)
 	Alerts          *repository.AlertRepo
+	Services        *repository.ServiceRepo
+	Checker         *service.ServiceChecker
 	NotifyChannels  *repository.NotifyChannelRepo
 	Notifier        *service.Notifier
 	Share           *repository.SharePageRepo

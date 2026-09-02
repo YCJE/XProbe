@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -64,6 +65,27 @@ func (l *Limiter) gcLocked(now time.Time) {
 	for k, w := range l.hits {
 		if now.Sub(w.start) >= l.window {
 			delete(l.hits, k)
+		}
+	}
+}
+
+// StartGC 后台定时回收过期窗口(审查 LOW #12: 防唯一 IP 慢泄漏)。
+func (l *Limiter) StartGC(ctx context.Context, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			l.mu.Lock()
+			now := l.now()
+			for k, w := range l.hits {
+				if now.Sub(w.start) >= l.window {
+					delete(l.hits, k)
+				}
+			}
+			l.mu.Unlock()
 		}
 	}
 }

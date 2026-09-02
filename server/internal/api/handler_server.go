@@ -103,6 +103,19 @@ func (d Deps) HandleHistory(c *gin.Context) {
 	}
 }
 
+// HandlePingHistory GET /api/v1/servers/:id/ping-history: 环形缓冲最近 60 分钟探测行(旧→新)。
+func (d Deps) HandlePingHistory(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	rows := d.Hub.PingRows(id)
+	if rows == nil {
+		rows = [][]model.PingResult{}
+	}
+	c.JSON(http.StatusOK, gin.H{"rows": rows, "interval_sec": 60})
+}
+
 // HandleUpdateMeta PUT /api/v1/servers/:id/meta(设计文档 5.8)。
 func (d Deps) HandleUpdateMeta(c *gin.Context) {
 	id, ok := pathID(c)

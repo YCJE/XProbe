@@ -68,6 +68,12 @@ export interface PingTarget {
   protocol: string;
 }
 
+export interface PingResult {
+  target: string; name: string; method: string; ip_version: number;
+  avg_latency: number; min_latency: number; max_latency: number;
+  jitter: number; loss: number; packets_sent: number; packets_recv: number;
+}
+
 export interface MetricPoint {
   timestamp: number;
   cpu: number;
@@ -75,11 +81,7 @@ export interface MetricPoint {
   disk: { device: string; total: number; used: number }[];
   rx: number;
   tx: number;
-  ping: {
-    target: string; name: string; ip_version: number;
-    avg_latency: number; min_latency: number; max_latency: number;
-    jitter: number; loss: number; packets_sent: number; packets_recv: number;
-  }[];
+  ping: PingResult[];
 }
 
 export interface DailyPoint {
@@ -89,12 +91,40 @@ export interface DailyPoint {
   ping: MetricPoint["ping"];
 }
 
+export interface ReportFrame {
+  type: string; timestamp: number; hostname: string;
+  data: {
+    cpu: { usage: number | null; cores?: number };
+    memory: { total: number; used: number };
+    network: { rx_speed: number; tx_speed: number };
+  };
+}
+
 export interface HistoryResponse {
   range: string;
   granularity: "3s" | "5m" | "1d";
   points_5m?: MetricPoint[];
   points_daily?: DailyPoint[];
-  realtime?: { timestamp: number; data: { cpu: { usage: number | null }; memory: { total: number; used: number } } }[];
+  realtime?: ReportFrame[];
+}
+
+export interface PublicPayload {
+  share_id: string;
+  title: string;
+  logo_url: string;
+  footer_text: string;
+  servers: {
+    display_name: string; hostname: string; online: boolean; country_code: string;
+    region: string; isp: string; cpu: number | null;
+    mem_used: number; mem_total: number;
+    disk: { device: string; total: number; used: number }[];
+    uptime: number; ping: Record<string, number>; ping_loss: Record<string, number>;
+  }[];
+  services?: {
+    id: number; name: string; type: string; up: boolean; latency_ms: number;
+    uptime_45d: number; recent?: { ts: number; ok: boolean; latency_ms: number }[];
+    daily?: { date: string; total: number; ok: number; up_ratio: number }[];
+  }[];
 }
 
 export interface AlertRule {

@@ -29,6 +29,8 @@ func BuildDashboardServers(agents []model.Agent, hub *Hub) []model.DashboardServ
 			PriceCurrency:     a.PriceCurrency,
 			PriceCycle:        a.PriceCycle,
 			TrafficQuotaBytes: a.TrafficQuotaBytes,
+			GeoLat:            a.GeoLat,
+			GeoLon:            a.GeoLon,
 			LastSeen:          a.LastSeen,
 		}
 		if r, ok := hub.LatestReport(a.ID); ok {

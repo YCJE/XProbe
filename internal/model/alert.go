@@ -52,11 +52,12 @@ type SharePageConfig struct {
 
 // PublicSharePayload 免登录状态页载荷(白名单字段, 无 IP/Token/配置, T11)。
 type PublicSharePayload struct {
-	ShareID    string                `json:"share_id"`
-	Title      string                `json:"title"`
-	LogoURL    string                `json:"logo_url"`
-	FooterText string                `json:"footer_text"`
-	Servers    []PublicShareServer   `json:"servers"`
+	ShareID    string              `json:"share_id"`
+	Title      string              `json:"title"`
+	LogoURL    string              `json:"logo_url"`
+	FooterText string              `json:"footer_text"`
+	Servers    []PublicShareServer `json:"servers"`
+	Services   []ServiceStatus     `json:"services,omitempty"`
 }
 
 type PublicShareServer struct {

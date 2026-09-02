@@ -1,20 +1,43 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { filterSortServers, useDashboard, type ViewMode } from "../store/dashboard";
 import { useDashboardWS } from "../lib/ws";
 import { formatBytes } from "../lib/format";
 import { Button, Empty, GlassCard, Input, Select, Skeleton } from "../components/ui";
 import { ServerCard } from "../components/ServerCard";
+import { MapView } from "../components/MapView";
 import { ServerTable } from "../components/ServerTable";
 
 /** 仪表盘(设计文档 6.4): 概览条 + 筛选栏 + 卡片/表格双视图(地图入口位预留 v2)。 */
-export function DashboardPage() {
+export function DashboardPage({ view: viewProp = "card" }: { view?: "card" | "table" | "map" }) {
   const nav = useNavigate();
   useDashboardWS();
   const { servers, tags, view, search, tagFilter, regionFilter, ipFilter, sortBy, connected } =
     useDashboard();
   const set = useDashboard((s) => s.set);
   const load = useDashboard((s) => s.load);
+  // 布局自定义(Komari 借鉴): 密度 + 显示项, localStorage 持久化
+  const [layout, setLayout] = useState(() => {
+    try {
+      return {
+        density: (localStorage.getItem("xprobe-density") || "comfortable") as "comfortable" | "compact",
+        showLatency: localStorage.getItem("xprobe-lat") !== "0",
+        showTraffic: localStorage.getItem("xprobe-traffic") !== "0",
+        showExpiry: localStorage.getItem("xprobe-expiry") !== "0",
+      };
+    } catch {
+      return { density: "comfortable" as const, showLatency: true, showTraffic: true, showExpiry: true };
+    }
+  });
+  const [layoutOpen, setLayoutOpen] = useState(false);
+  const setLayoutItem = (k: keyof typeof layout, v: string | boolean) => {
+    const next = { ...layout, [k]: v } as typeof layout;
+    setLayout(next);
+    localStorage.setItem(
+      k === "density" ? "xprobe-density" : k === "showLatency" ? "xprobe-lat" : k === "showTraffic" ? "xprobe-traffic" : "xprobe-expiry",
+      String(v),
+    );
+  };
 
   useEffect(() => {
     load();
@@ -66,12 +89,12 @@ export function DashboardPage() {
           <option value="">全部地区</option>
           {regions.map((r) => <option key={r} value={r}>{r}</option>)}
         </Select>
-        <Select value={ipFilter} onChange={(e) => set("ipFilter", e.target.value)}>
+        <Select value={ipFilter} onChange={(e) => set("ipFilter", e.target.value as "all" | "v4" | "v6")}>
           <option value="all">全部 IP</option>
           <option value="v4">IPv4</option>
           <option value="v6">IPv6</option>
         </Select>
-        <Select value={sortBy} onChange={(e) => set("sortBy", e.target.value)}>
+        <Select value={sortBy} onChange={(e) => set("sortBy", e.target.value as "name" | "cpu" | "mem" | "traffic" | "latency" | "expires")}>
           <option value="name">按名称</option>
           <option value="cpu">按 CPU</option>
           <option value="mem">按内存</option>
@@ -80,17 +103,39 @@ export function DashboardPage() {
           <option value="expires">按到期</option>
         </Select>
         <div className="ml-auto flex gap-1">
-          {(["card", "table"] as ViewMode[]).map((v) => (
-            <Button key={v} variant={view === v ? "primary" : "ghost"} onClick={() => set("view", v)}>
-              {v === "card" ? "卡片" : "表格"}
-            </Button>
-          ))}
-          <Button variant="ghost" disabled title="v2 提供">地图</Button>
+          <Button variant={viewProp === "card" ? "primary" : "ghost"} onClick={() => nav("/dashboard")}>卡片</Button>
+          <Button variant={viewProp === "table" ? "primary" : "ghost"} onClick={() => nav("/dashboard")}>表格</Button>
+          <Button variant={viewProp === "map" ? "primary" : "ghost"} onClick={() => nav("/dashboard/map")}>地图</Button>
+          <Button variant="ghost" onClick={() => setLayoutOpen(!layoutOpen)}>布局</Button>
         </div>
       </div>
 
+      {layoutOpen && (
+        <GlassCard className="mb-4 flex flex-wrap items-center gap-4 py-3 text-xs">
+          <span className="flex items-center gap-1">
+            密度
+            <Select value={layout.density} onChange={(e) => setLayoutItem("density", e.target.value)}>
+              <option value="comfortable">舒适</option>
+              <option value="compact">紧凑</option>
+            </Select>
+          </span>
+          {([["showLatency", "延迟格子"], ["showTraffic", "月流量"], ["showExpiry", "到期费用"]] as const).map(([k, label]) => (
+            <label key={k} className="flex items-center gap-1">
+              <input type="checkbox" checked={layout[k]} onChange={(e) => setLayoutItem(k, e.target.checked)} />
+              {label}
+            </label>
+          ))}
+        </GlassCard>
+      )}
+
       {/* 视图 */}
-      {servers.length === 0 ? (
+      {viewProp === "map" ? (
+        servers.length === 0 ? (
+          <GlassCard><Empty title="还没有服务器" /></GlassCard>
+        ) : (
+          <MapView servers={shown} />
+        )
+      ) : servers.length === 0 ? (
         <GlassCard>
           <Empty
             title="还没有服务器"
@@ -100,13 +145,14 @@ export function DashboardPage() {
       ) : shown.length === 0 ? (
         <GlassCard><Empty title="无匹配结果" hint="调整筛选条件后重试" /></GlassCard>
       ) : view === "card" ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${layout.density === "compact" ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
           {shown.map((s) => (
             <ServerCard
               key={s.id}
               s={s}
               tagMap={new Map(tags.map((t) => [t.id, t]))}
               onClick={() => nav(`/server/${s.id}`)}
+              layout={layout}
             />
           ))}
         </div>

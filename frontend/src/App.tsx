@@ -8,6 +8,9 @@ import { DetailPage } from "./pages/DetailPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { NotifyPage } from "./pages/NotifyPage";
+import { ServicesPage } from "./pages/ServicesPage";
+import { ReportsPage } from "./pages/ReportsPage";
+import { MapView } from "./components/MapView";
 import { ShareConfigPage } from "./pages/SharePage";
 import { SharePage } from "./pages/SharePage";
 
@@ -35,6 +38,8 @@ function TopNav() {
       </span>
       <nav className="flex gap-1">
         <a className={item} href="#/dashboard">仪表盘</a>
+        <a className={item} href="#/services">服务</a>
+        <a className={item} href="#/reports">报表</a>
         <a className={item} href="#/alerts">告警</a>
         <a className={item} href="#/notify">通知</a>
         <a className={item} href="#/settings">设置</a>
@@ -58,7 +63,10 @@ export function App() {
       <Route path="/" element={<RequireAuth />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<><TopNav /><DashboardPage /></>} />
+        <Route path="dashboard/map" element={<><TopNav /><DashboardPage view="map" /></>} />
         <Route path="server/:id" element={<><TopNav /><DetailPage /></>} />
+        <Route path="services" element={<><TopNav /><ServicesPage /></>} />
+        <Route path="reports" element={<><TopNav /><ReportsPage /></>} />
         <Route path="alerts" element={<><TopNav /><AlertsPage /></>} />
         <Route path="notify" element={<><TopNav /><NotifyPage /></>} />
         <Route path="settings" element={<><TopNav /><SettingsPage /></>} />

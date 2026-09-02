@@ -38,6 +38,7 @@ export interface TagsResp { tags: import("./types").Tag[] }
 export interface SessionsResp { sessions: import("./types").SessionInfo[] }
 export interface CodesResp { codes: import("./types").RegisterCodeInfo[] }
 export interface TargetsResp { ping_targets: import("./types").PingTarget[] }
+export interface PingRowsResp { rows: import("./types").PingResult[][]; interval_sec: number }
 export interface DetailResp {
   server: import("./types").ServerInfo;
   traffic_monthly: { month: string; rx_bytes: number; tx_bytes: number }[];

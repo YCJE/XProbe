@@ -55,12 +55,14 @@ type DashboardServer struct {
 	Ping           map[string]float64 `json:"ping"` // 目标显示名 → 平均延迟 ms
 	PingLoss       map[string]float64 `json:"ping_loss"`
 	// 元数据(NodeGet 风格)
-	ExpiresAt         int64   `json:"expires_at"`
-	PriceAmount       float64 `json:"price_amount"`
-	PriceCurrency     string  `json:"price_currency"`
-	PriceCycle        string  `json:"price_cycle"`
-	TrafficQuotaBytes int64   `json:"traffic_quota_bytes"`
-	LastSeen          int64   `json:"last_seen"`
+	ExpiresAt         int64    `json:"expires_at"`
+	PriceAmount       float64  `json:"price_amount"`
+	PriceCurrency     string   `json:"price_currency"`
+	PriceCycle        string   `json:"price_cycle"`
+	TrafficQuotaBytes int64    `json:"traffic_quota_bytes"`
+	GeoLat            *float64 `json:"geo_lat"`
+	GeoLon            *float64 `json:"geo_lon"`
+	LastSeen          int64    `json:"last_seen"`
 }
 
 // Tag 彩色标签。
@@ -72,16 +74,18 @@ type Tag struct {
 
 // UpdateMetaRequest 服务器元数据编辑(全部管理员设置, 设计文档 5.8)。
 type UpdateMetaRequest struct {
-	DisplayName       string  `json:"display_name"`
-	Region            string  `json:"region"`
-	CountryCode       string  `json:"country_code"`
-	ISP               string  `json:"isp"`
-	TagIDs            []int64 `json:"tag_ids"`
-	ExpiresAt         int64   `json:"expires_at"`
-	PriceAmount       float64 `json:"price_amount"`
-	PriceCurrency     string  `json:"price_currency"`
-	PriceCycle        string  `json:"price_cycle"`
-	TrafficQuotaBytes int64   `json:"traffic_quota_bytes"`
+	DisplayName       string   `json:"display_name"`
+	Region            string   `json:"region"`
+	CountryCode       string   `json:"country_code"`
+	ISP               string   `json:"isp"`
+	TagIDs            []int64  `json:"tag_ids"`
+	ExpiresAt         int64    `json:"expires_at"`
+	PriceAmount       float64  `json:"price_amount"`
+	PriceCurrency     string   `json:"price_currency"`
+	PriceCycle        string   `json:"price_cycle"`
+	TrafficQuotaBytes int64    `json:"traffic_quota_bytes"`
+	GeoLat            *float64 `json:"geo_lat"`
+	GeoLon            *float64 `json:"geo_lon"`
 }
 
 // ResetFingerprintRequest 指纹重置(设计文档 7.5)。

@@ -244,7 +244,7 @@ func (d Deps) HandlePublicShare(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, model.PublicSharePayload{
 		ShareID: cfg.ShareID, Title: cfg.Title, LogoURL: cfg.LogoURL,
-		FooterText: cfg.FooterText, Servers: servers,
+		FooterText: cfg.FooterText, Servers: servers, Services: d.Checker.Snapshot(c.Request.Context()),
 	})
 }
 
