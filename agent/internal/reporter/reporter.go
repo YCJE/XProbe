@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -143,6 +144,7 @@ func (c *Client) session(ctx context.Context, conn *websocket.Conn) {
 		return conn.WriteMessage(websocket.TextMessage, b)
 	}
 
+	var pingInFlight atomic.Bool
 	errCh := make(chan error, 2)
 	go func() {
 		for {
@@ -198,8 +200,12 @@ func (c *Client) session(ctx context.Context, conn *websocket.Conn) {
 			if c.PingCollect == nil {
 				continue
 			}
-			// 探测在独立 goroutine 执行(一轮最坏约 30-60s), 不阻塞 3s 上报与 30s 心跳(审查 HIGH #3)
+			if !pingInFlight.CompareAndSwap(false, true) {
+				continue // 上一轮未结束(慢网/降级), 跳过本轮防叠加
+			}
+			// 探测在独立 goroutine 执行(一轮最坏约 30-60s), 不阻塞 3s 上报与 30s 心跳
 			go func() {
+				defer pingInFlight.Store(false)
 				results, perr := c.PingCollect(ctx)
 				if perr != nil {
 					c.logf("ping collect: %v", perr)

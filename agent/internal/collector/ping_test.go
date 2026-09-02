@@ -76,11 +76,11 @@ func TestTCPPing_Unreachable(t *testing.T) {
 }
 
 func TestResolve_IPLiteralAndFamilyMismatch(t *testing.T) {
-	ip, err := resolve("114.114.114.114", 4)
+	ip, err := resolve(context.Background(), "114.114.114.114", 4)
 	if err != nil || ip != "114.114.114.114" {
 		t.Fatalf("resolve = %s, %v", ip, err)
 	}
-	if _, err := resolve("114.114.114.114", 6); err == nil {
+	if _, err := resolve(context.Background(), "114.114.114.114", 6); err == nil {
 		t.Fatal("v4 literal with v6 target should error")
 	}
 }

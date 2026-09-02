@@ -87,7 +87,7 @@ func (p *PingCollector) Collect(ctx context.Context) ([]model.PingResult, error)
 
 func (p *PingCollector) pingOne(ctx context.Context, t model.PingTarget) (model.PingResult, error) {
 	// 预解析排除 DNS 时间; v6 目标在无 IPv6 出口时静默跳过
-	ip, err := resolve(t.Target, t.IPVersion)
+	ip, err := resolve(ctx, t.Target, t.IPVersion)
 	if err != nil {
 		return model.PingResult{}, err
 	}
@@ -210,17 +210,22 @@ func lastIndexOfColon(s string) int {
 	return -1
 }
 
-// resolve DNS 预解析(设计文档 4.6: 排除 DNS 时间); v6 目标无 v6 出口时报错跳过。
-func resolve(host string, ipVersion int) (string, error) {
+// resolve DNS 预解析(设计文档 4.6: 排除 DNS 时间; ctx 感知, 取消即返回);
+// v6 目标无 v6 出口时报错跳过。
+func resolve(ctx context.Context, host string, ipVersion int) (string, error) {
 	if ip := net.ParseIP(host); ip != nil {
 		if ipVersion == 6 && ip.To4() != nil {
 			return "", fmt.Errorf("target %s is v4 but marked v6", host)
 		}
 		return ip.String(), nil
 	}
-	ips, err := net.LookupIP(host)
+	ipsAddrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return "", fmt.Errorf("resolve %s: %w", host, err)
+	}
+	ips := make([]net.IP, len(ipsAddrs))
+	for i, a := range ipsAddrs {
+		ips[i] = a.IP
 	}
 	want6 := ipVersion == 6
 	for _, ip := range ips {
@@ -228,6 +233,7 @@ func resolve(host string, ipVersion int) (string, error) {
 			return ip.String(), nil
 		}
 	}
+	_ = ips
 	return "", fmt.Errorf("resolve %s: no matching A/AAAA record", host)
 }
 

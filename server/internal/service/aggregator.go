@@ -68,26 +68,34 @@ func (a *Aggregator) AggregateOnce(ctx context.Context, now time.Time) error {
 		if len(reports) == 0 {
 			continue
 		}
-		// 仅聚合自上次水位线之后的新帧, 避免窗口重叠重复计数(审查 MEDIUM #7)
+		// 水位线 = 该 Agent 帧最大时间戳(非服务器时钟), 防慢时钟 Agent 历史静默丢失(审查 HIGH #2)
 		a.mu.Lock()
 		watermark := a.lastAgg[id]
 		a.mu.Unlock()
 		points := make([]model.Report, 0, len(reports))
+		maxTs := watermark
 		for _, r := range reports {
-			if r.Timestamp > watermark && r.Timestamp <= now.Unix() {
+			if r.Timestamp > watermark {
 				points = append(points, r)
+				if r.Timestamp > maxTs {
+					maxTs = r.Timestamp
+				}
 			}
 		}
 		if len(points) == 0 {
 			continue
 		}
 		mp := Aggregate5m(points, now.Unix())
-		a.mu.Lock()
-		a.lastAgg[id] = now.Unix()
-		a.mu.Unlock()
 		if err := a.records.Insert5m(ctx, id, now.Unix(), mp); err != nil {
+			log.Printf("[aggregator] insert agent=%d: %v", id, err) // 失败不推进水位线, 下轮重试
 			lastErr = err
+			continue
 		}
+		a.mu.Lock()
+		if maxTs > a.lastAgg[id] {
+			a.lastAgg[id] = maxTs
+		}
+		a.mu.Unlock()
 		// 月流量归档(当月最大累计)
 		if t := points[len(points)-1].Data.TrafficMonthly; t.Month != "" {
 			if err := a.records.UpsertTraffic(ctx, id, t); err != nil {

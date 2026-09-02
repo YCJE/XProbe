@@ -59,3 +59,10 @@ export function formatDate(ts: number): string {
 export const currencySymbol: Record<string, string> = {
   CNY: "¥", USD: "$", EUR: "€", JPY: "¥",
 };
+
+/** 取 CSS 变量的实际色值(echarts canvas 不解析 var())。 */
+export function cssVar(name: string): string {
+  if (typeof document === "undefined") return "#888";
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || "#888";
+}

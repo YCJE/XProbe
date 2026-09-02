@@ -7,7 +7,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import { api, type DetailResp, type PingRowsResp } from "../lib/api";
 import type { HistoryResponse } from "../lib/types";
 import type { ServerInfo } from "../lib/types";
-import { formatBytes, formatSpeed, latencyVar, formatUptime } from "../lib/format";
+import { cssVar, formatBytes, formatSpeed, latencyVar, formatUptime } from "../lib/format";
 import { GlassCard, StatusDot } from "../components/ui";
 import { LatencyGrid, type LatencyPoint } from "../components/LatencyGrid";
 
@@ -190,9 +190,9 @@ function ChartCard({ title, series, points, yMax, bytes }: {
     const fmt = (v: number) => (bytes ? formatBytes(v) : `${v.toFixed(1)}`);
     chart.setOption({
       animation: false,
-      textStyle: { color: "var(--muted)", fontSize: 11 },
+      textStyle: { color: cssVar("--muted"), fontSize: 11 },
       tooltip: { trigger: "axis", valueFormatter: fmt },
-      legend: { top: 0, right: 0, textStyle: { color: "var(--muted)", fontSize: 11 } },
+      legend: { top: 0, right: 0, textStyle: { color: cssVar("--muted"), fontSize: 11 } },
       grid: { left: 48, right: 12, top: 28, bottom: 24 },
       xAxis: { type: "category", data: axis, axisLabel: { hideOverlap: true } },
       yAxis: { type: "value", max: yMax, axisLabel: { formatter: fmt } },

@@ -122,6 +122,7 @@ function NewService({ onDone }: { onDone: () => void }) {
   const [testResult, setTestResult] = useState("");
 
   const create = async () => {
+    try {
     const body = {
       name, type, target,
       port: type === "http" ? 0 : Number(port || 80),
@@ -134,6 +135,9 @@ function NewService({ onDone }: { onDone: () => void }) {
     setTestResult(t.ok ? `探测成功 ${t.latency_ms.toFixed(0)}ms` : `探测失败: ${t.error}`);
     setName(""); setTarget(""); setPort(""); setPath("");
     onDone();
+    } catch (e) {
+      setTestResult(`保存失败: ${e instanceof ApiError ? e.message : "网络错误"}`);
+    }
   };
 
   if (!open) return <Button onClick={() => setOpen(true)}>添加服务监控</Button>;

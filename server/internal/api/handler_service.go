@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/YCJE/XProbe/internal/model"
+	"github.com/YCJE/XProbe/server/internal/service"
 )
 
 // HandleListServices GET /api/v1/services: 配置 + 实时状态 + 45 天在线率。
@@ -42,16 +43,9 @@ func (d Deps) HandleCreateService(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name and target required"})
 		return
 	}
-	if v.Type != "http" && v.Type != "tcp" && v.Type != "icmp" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "type must be http/tcp/icmp"})
+	if err := service.ValidateService(&v); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
-	}
-	if v.Type == "tcp" && v.Port == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tcp requires port"})
-		return
-	}
-	if v.IntervalSec <= 0 {
-		v.IntervalSec = 60
 	}
 	id, err := d.Services.Create(c.Request.Context(), &v)
 	if err != nil {
@@ -73,6 +67,10 @@ func (d Deps) HandleUpdateService(c *gin.Context) {
 		return
 	}
 	v.ID = id
+	if err := service.ValidateService(&v); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	if err := d.Services.Update(c.Request.Context(), &v); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
@@ -90,6 +88,7 @@ func (d Deps) HandleDeleteService(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
+	d.Checker.ForgetService(id)
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 

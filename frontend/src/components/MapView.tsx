@@ -6,6 +6,7 @@ import { GeoComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { ServerInfo } from "../lib/types";
 import { resolveCoord } from "../lib/geo";
+import { cssVar } from "../lib/format";
 import { Empty, GlassCard } from "./ui";
 
 echarts.use([ScatterChart, EffectScatterChart, GeoComponent, TooltipComponent, CanvasRenderer]);
@@ -16,97 +17,52 @@ let worldRegistered = false;
 export function MapView({ servers }: { servers: ServerInfo[] }) {
   const nav = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<echarts.ECharts | null>(null);
   const [mapError, setMapError] = useState(false);
+  const [mapReady, setMapReady] = useState(worldRegistered);
+  const [, force] = useState(0);
 
   useEffect(() => {
-    if (worldRegistered) return;
+    if (worldRegistered) {
+      setMapReady(true);
+      return;
+    }
     fetch("/world.json")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("world.json missing"))))
       .then((json) => {
         echarts.registerMap("world", json as never);
         worldRegistered = true;
-        setMapError(false);
-        render();
+        setMapReady(true);
       })
       .catch(() => setMapError(true));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (worldRegistered) render();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [servers]);
-
-  function render() {
-    if (!ref.current) return;
+    if (!mapReady || mapError || !ref.current) return;
     const dark = document.documentElement.classList.contains("dark");
-    // 按坐标聚合
-    const groups = new Map<string, { coord: [number, number]; items: ServerInfo[] }>();
-    for (const s of servers) {
-      const coord = resolveCoord(s);
-      if (!coord) continue;
-      const key = coord.map((v) => v.toFixed(1)).join(",");
-      const g = groups.get(key) ?? { coord, items: [] };
-      g.items.push(s);
-      groups.set(key, g);
+    if (chartRef.current) {
+      chartRef.current.dispose();
+      chartRef.current = null;
     }
-    const points = [...groups.entries()].map(([key, g]) => ({
-      name: key,
-      value: [g.coord[1], g.coord[0], g.items.length],
-      items: g.items,
-    }));
-
-    const chart = echarts.init(ref.current!);
-    chart.setOption({
-      animation: false,
-      backgroundColor: "transparent",
-      tooltip: {
-        trigger: "item",
-        formatter: (p: { data?: { items?: ServerInfo[] } }) => {
-          const items = p.data?.items ?? [];
-          return items.map((s) => `${s.display_name || s.hostname} · ${s.online ? "在线" : "离线"}`).join("<br/>");
-        },
-      },
-      geo: {
-        map: "world",
-        roam: true,
-        silent: true,
-        itemStyle: {
-          areaColor: dark ? "#16223a" : "#e3e9f4",
-          borderColor: dark ? "#2c3d5e" : "#c3cfe3",
-        },
-        emphasis: { disabled: true },
-      },
-      series: [
-        {
-          type: "effectScatter",
-          coordinateSystem: "geo",
-          data: points.filter((p) => p.items.some((s) => s.online)),
-          symbolSize: (v: number[]) => 8 + Math.min(v[2], 10) * 2,
-          rippleEffect: { scale: 2.2 },
-          itemStyle: { color: "var(--success)" },
-        },
-        {
-          type: "scatter",
-          coordinateSystem: "geo",
-          data: points.filter((p) => !p.items.some((s) => s.online)),
-          symbolSize: 10,
-          itemStyle: { color: "var(--lat-6)", opacity: 0.8 },
-        },
-      ],
-    });
-    const onClick = (params: unknown) => {
+    const chart = echarts.init(ref.current);
+    chartRef.current = chart;
+    chart.setOption(buildOption(dark, servers));
+    chart.on("click", (params: unknown) => {
       const items = (params as { data?: { items?: ServerInfo[] } }).data?.items;
       if (items && items.length === 1) nav(`/server/${items[0].id}`);
-    };
-    chart.on("click", onClick);
+    });
     const onResize = () => chart.resize();
     window.addEventListener("resize", onResize);
+    // 主题切换时重绘(色值取自 getComputedStyle)
+    const obs = new MutationObserver(() => force((v) => v + 1));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
     return () => {
+      obs.disconnect();
       window.removeEventListener("resize", onResize);
       chart.dispose();
+      chartRef.current = null;
     };
-  }
+  }, [mapReady, mapError, servers, nav]);
 
   if (mapError) {
     return (
@@ -116,7 +72,7 @@ export function MapView({ servers }: { servers: ServerInfo[] }) {
     );
   }
 
-  const noCoord = servers.filter((s) => !resolveCoord(s)).length;
+  const noCoord = servers.filter((x) => !resolveCoord(x)).length;
   return (
     <div>
       <GlassCard className="p-2">
@@ -129,4 +85,61 @@ export function MapView({ servers }: { servers: ServerInfo[] }) {
       )}
     </div>
   );
+}
+
+function buildOption(dark: boolean, servers: ServerInfo[]): echarts.EChartsCoreOption {
+  // 按坐标聚合
+  const groups = new Map<string, { coord: [number, number]; items: ServerInfo[] }>();
+  for (const s of servers) {
+    const coord = resolveCoord(s);
+    if (!coord) continue;
+    const key = coord.map((v) => v.toFixed(1)).join(",");
+    const g = groups.get(key) ?? { coord, items: [] };
+    g.items.push(s);
+    groups.set(key, g);
+  }
+  const points = [...groups.entries()].map(([key, g]) => ({
+    name: key,
+    value: [g.coord[1], g.coord[0], g.items.length],
+    items: g.items,
+  }));
+
+  return {
+    animation: false,
+    backgroundColor: "transparent",
+    tooltip: {
+      trigger: "item",
+      formatter: (p: unknown) => {
+        const items = (p as { data?: { items?: ServerInfo[] } }).data?.items ?? [];
+        return items.map((s) => `${s.display_name || s.hostname} · ${s.online ? "在线" : "离线"}`).join("<br/>");
+      },
+    },
+    geo: {
+      map: "world",
+      roam: true,
+      silent: true,
+      itemStyle: {
+        areaColor: dark ? "#16223a" : "#e3e9f4",
+        borderColor: dark ? "#2c3d5e" : "#c3cfe3",
+      },
+      emphasis: { disabled: true },
+    },
+    series: [
+      {
+        type: "effectScatter",
+        coordinateSystem: "geo",
+        data: points.filter((p) => p.items.some((s) => s.online)),
+        symbolSize: (v: number[]) => 8 + Math.min(v[2], 10) * 2,
+        rippleEffect: { scale: 2.2 },
+        itemStyle: { color: cssVar("--success") },
+      },
+      {
+        type: "scatter",
+        coordinateSystem: "geo",
+        data: points.filter((p) => !p.items.some((s) => s.online)),
+        symbolSize: 10,
+        itemStyle: { color: cssVar("--lat-6"), opacity: 0.8 },
+      },
+    ],
+  };
 }

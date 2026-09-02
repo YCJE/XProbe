@@ -4,7 +4,7 @@ import { BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, LegendComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { api } from "../lib/api";
-import { formatBytes } from "../lib/format";
+import { cssVar, formatBytes } from "../lib/format";
 import { GlassCard, Input, Empty } from "../components/ui";
 
 echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
@@ -155,9 +155,9 @@ function TrafficChart({ months, series, visible }: { months: string[]; series: o
     const chart = echarts.init(ref.current);
     chart.setOption({
       animation: false,
-      textStyle: { color: "var(--muted)", fontSize: 11 },
+      textStyle: { color: cssVar("--muted"), fontSize: 11 },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-      legend: { top: 0, textStyle: { color: "var(--muted)", fontSize: 11 } },
+      legend: { top: 0, textStyle: { color: cssVar("--muted"), fontSize: 11 } },
       grid: { left: 56, right: 12, top: 32, bottom: 24 },
       xAxis: { type: "category", data: months },
       yAxis: { type: "value", name: "GB" },

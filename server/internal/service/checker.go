@@ -49,15 +49,49 @@ type ServiceChecker struct {
 type svcDayAcc struct {
 	date      string
 	total, ok int64
+	dirty     bool
 }
 
 func NewServiceChecker(repo *repository.ServiceRepo, notifier ServiceNotifier) *ServiceChecker {
 	return &ServiceChecker{
 		repo: repo, notifier: notifier,
 		recent: map[int64][]model.ServiceResult{}, states: map[int64]bool{},
-		since: map[int64]time.Time{}, lastRun: map[int64]time.Time{},
-		dayAcc: map[int64]*svcDayAcc{}, now: time.Now,
+		lastRun: map[int64]time.Time{},
+		dayAcc:  map[int64]*svcDayAcc{}, now: time.Now,
 	}
+}
+
+// MinIntervalSec 单服务探测周期下限(ICMP 单轮最坏约 21s, 防同服务探测重叠)。
+const MinIntervalSec = 30
+
+// ValidateService 创建/更新共用的字段校验。
+func ValidateService(v *model.Service) error {
+	if v.Name == "" || v.Target == "" {
+		return fmt.Errorf("name and target required")
+	}
+	if v.Type != "http" && v.Type != "tcp" && v.Type != "icmp" {
+		return fmt.Errorf("type must be http/tcp/icmp")
+	}
+	if v.Type == "tcp" && v.Port == 0 {
+		return fmt.Errorf("tcp requires port")
+	}
+	if v.IntervalSec <= 0 {
+		v.IntervalSec = 60
+	}
+	if v.IntervalSec < MinIntervalSec {
+		return fmt.Errorf("interval_sec must be >= %d", MinIntervalSec)
+	}
+	return nil
+}
+
+// ForgetService 删除服务后清理内存态(审查 LOW #14)。
+func (c *ServiceChecker) ForgetService(id int64) {
+	c.mu.Lock()
+	delete(c.states, id)
+	delete(c.recent, id)
+	delete(c.dayAcc, id)
+	delete(c.lastRun, id)
+	c.mu.Unlock()
 }
 
 // Run 主循环: 全局 5s 粒度 tick, 到期的服务各自探测。
@@ -113,10 +147,19 @@ func (c *ServiceChecker) probe(ctx context.Context, svc *model.Service) {
 	}
 	res := model.ServiceResult{Ts: start.Unix(), OK: ok, LatencyMs: latency}
 
-	// 日累计(内存为准, flushDaily 覆盖当日行)
-	today := c.now().UTC().Format("2006-01-02")
+	// 日累计(内存为准, flushDaily 覆盖当日行); 日期取探测起始时刻, 防跨零点错账
+	today := start.UTC().Format("2006-01-02")
 	c.mu.Lock()
 	acc := c.dayAcc[svc.ID]
+	if acc != nil && acc.date != today && acc.total > 0 {
+		// 翻日: 先落旧账再换新账(防最后增量丢失)
+		cp := *acc
+		c.mu.Unlock()
+		_ = c.repo.UpsertDaily(ctx, svc.ID, model.ServiceDaily{Date: cp.date, Total: cp.total, Ok: cp.ok,
+			UpRatio: pct(cp.ok, cp.total)})
+		c.mu.Lock()
+		acc = c.dayAcc[svc.ID]
+	}
 	if acc == nil || acc.date != today {
 		acc = &svcDayAcc{date: today}
 		c.dayAcc[svc.ID] = acc
@@ -125,9 +168,9 @@ func (c *ServiceChecker) probe(ctx context.Context, svc *model.Service) {
 	if res.OK {
 		acc.ok++
 	}
+	acc.dirty = true
 	prev, had := c.states[svc.ID]
 	c.states[svc.ID] = res.OK
-	c.since[svc.ID] = start
 	recent := append(c.recent[svc.ID], res)
 	if len(recent) > svcMaxRecent {
 		recent = recent[len(recent)-svcMaxRecent:]
@@ -225,7 +268,7 @@ func (c *ServiceChecker) probeICMP(ctx context.Context, svc *model.Service) (boo
 		pinger.Interval = 300 * time.Millisecond
 		pinger.Timeout = svcProbeTimeout
 		pinger.SetPrivileged(privileged)
-		if err := pinger.Run(); err == nil {
+		if err := pinger.RunWithContext(ctx); err == nil {
 			return pinger.Statistics().PacketsRecv > 0, nil
 		}
 		if ctx.Err() != nil {
@@ -244,13 +287,24 @@ func (c *ServiceChecker) SeedDaily(ctx context.Context) {
 	}
 	for _, svc := range services {
 		daily, derr := c.repo.ListDaily(ctx, svc.ID, 1)
-		if derr != nil || len(daily) == 0 || daily[0].Date != today {
+		if derr != nil || len(daily) == 0 {
+			continue
+		}
+		todayRow := daily[len(daily)-1] // ASC 末元素为今日
+		if todayRow.Date != today {
 			continue
 		}
 		c.mu.Lock()
-		c.dayAcc[svc.ID] = &svcDayAcc{date: today, total: daily[0].Total, ok: daily[0].Ok}
+		c.dayAcc[svc.ID] = &svcDayAcc{date: today, total: todayRow.Total, ok: todayRow.Ok}
 		c.mu.Unlock()
 	}
+}
+
+func pct(ok, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(ok) / float64(total) * 100
 }
 
 // Snapshot 输出状态页/面板载荷(白名单字段)。
@@ -311,13 +365,15 @@ func (c *ServiceChecker) flushDaily(ctx context.Context, now time.Time) {
 	}
 	c.mu.Unlock()
 	for _, b := range batch {
-		ratio := 0.0
-		if b.acc.total > 0 {
-			ratio = float64(b.acc.ok) / float64(b.acc.total) * 100
+		if !b.acc.dirty {
+			continue // 无增量不写(审查 LOW #13: 写放大)
 		}
+		ratio := pct(b.acc.ok, b.acc.total)
 		d := model.ServiceDaily{Date: b.acc.date, Total: b.acc.total, Ok: b.acc.ok, UpRatio: ratio}
 		if err := c.repo.UpsertDaily(ctx, b.id, d); err != nil {
 			log.Printf("[service] daily upsert: %v", err)
+		} else {
+			b.acc.dirty = false
 		}
 	}
 	_ = now
