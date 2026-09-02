@@ -3,6 +3,7 @@ package api
 import (
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 
 	xprobe "github.com/YCJE/XProbe/server"
@@ -14,6 +15,12 @@ import (
 
 // NewRouter 组装路由与中间件(设计文档 5.1 v1.3 全量)。
 func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
+	// 默认 release 模式(生产无 GIN-debug 日志墙); 需要调试时设 XPROBE_DEBUG=1
+	if os.Getenv("XPROBE_DEBUG") == "1" {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	r := gin.New()
 	r.SetTrustedProxies(nil) // ClientIP 取 RemoteAddr, 防 X-Forwarded-For 伪造绕过限速(直连部署默认; 反代后须配置真实 CIDR)
 	r.Use(gin.Recovery(), pkg.SecurityHeaders())

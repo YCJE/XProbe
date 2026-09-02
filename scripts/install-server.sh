@@ -113,6 +113,9 @@ EnvironmentFile=-/etc/xprobe-server/env
 ExecStart=$BIN --config ${CONFIG_DIR}/config.yml
 Restart=always
 RestartSec=5
+# 非 root 绑定 443 需要(与 Agent 的 CAP_NET_RAW 同思路)
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -131,10 +134,20 @@ ok "服务已启动(xprobe 用户, 非 root)"
 sleep 2
 step "自检"
 if [ "$(systemctl is-active xprobe-server)" != "active" ]; then
-    warn "服务未进入 active 状态, 查看日志: journalctl -u xprobe-server -n 50 --no-pager"
-else
-    ok "服务运行中"
+    echo
+    printf '%s
+' "${C_ERR}  ✘ 服务未运行, 最近日志:${C_END}"
+    journalctl -u xprobe-server -n 12 --no-pager | sed 's/^/    /' || true
+    cat >&2 <<'MSG'
+
+  常见原因:
+    · bind: permission denied → 旧版服务单元缺少能力授予, 重新运行本脚本即可修复
+    · bind: address already in use → 443 被占用, 修改 config.yml 的 listen 后重启
+    · 前端 404 → 二进制未内嵌前端(源码编译请先 make build-frontend)
+MSG
+    exit 1
 fi
+ok "服务运行中"
 FP=$(curl -fsSk --connect-timeout 5 "https://127.0.0.1/api/v1/server-cert" 2>/dev/null \
     | grep -o '"fingerprint"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
 
