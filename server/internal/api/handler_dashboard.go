@@ -1,12 +1,14 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/YCJE/XProbe/server/internal/pkg"
 	"github.com/YCJE/XProbe/server/internal/service"
 )
 
@@ -29,6 +31,13 @@ func (d Deps) HandleDashboardWS(c *gin.Context) {
 	defer ticker.Stop()
 
 	push := func() error {
+		// 会话吊销/过期后即时断开(握手后长连接不再信任, 审查 LOW #8)
+		if token := tokenFromRequest(c); token == "" {
+			return errors.New("session gone")
+		} else if active, aerr := d.Sessions.IsActive(c.Request.Context(),
+			pkg.SHA256Hex(token), time.Now().Unix()); aerr != nil || !active {
+			return errors.New("session revoked")
+		}
 		agents, err := d.Agents.List(c.Request.Context())
 		if err != nil {
 			return err

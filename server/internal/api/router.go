@@ -13,6 +13,7 @@ import (
 // NewRouter 组装路由与中间件(设计文档 5.1 v1.3 全量)。
 func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 	r := gin.New()
+	r.SetTrustedProxies(nil) // ClientIP 取 RemoteAddr, 防 X-Forwarded-For 伪造绕过限速(直连部署默认; 反代后须配置真实 CIDR)
 	r.Use(gin.Recovery(), pkg.SecurityHeaders())
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })

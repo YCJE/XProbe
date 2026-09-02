@@ -124,3 +124,48 @@ func TestAggregator_DayAggregate(t *testing.T) {
 		t.Fatalf("traffic = %+v, want max(100,300)=300", traffic)
 	}
 }
+
+func TestAggregator_WatermarkNoDoubleCount(t *testing.T) {
+	// 审查 MEDIUM #7 回归: 水位线保证同一报告帧只被聚合一行
+	db, err := repository.Open(filepath.Join(t.TempDir(), "wm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	if err := repository.Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	agents := repository.NewAgentRepo(db)
+	records := repository.NewRecordRepo(db)
+	hub := NewHub(agents, 90*time.Second)
+
+	agentID, _ := agents.Create(ctx, &model.Agent{TokenHash: "h", Hostname: "a", HostFingerprint: "f", CreatedAt: 1})
+	if err := hub.Attach(agentID, &fakeConn{}); err != nil {
+		t.Fatal(err)
+	}
+	u50 := 50.0
+	if err := hub.HandleReport(agentID, &model.Report{
+		Type: model.FrameReport, Timestamp: time.Now().Unix(), Hostname: "a",
+		Data: model.ReportData{CPU: model.CPUInfo{Usage: &u50}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	agg := NewAggregator(hub, records, agents)
+	now := time.Now()
+	if err := agg.AggregateOnce(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	// 无新报告的第二次聚合: 不应再产出行
+	if err := agg.AggregateOnce(ctx, now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM metric_records WHERE agent_id = ?`, agentID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("metric_records rows = %d, want 1 (no double count)", n)
+	}
+}

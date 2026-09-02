@@ -162,8 +162,8 @@ func TestAlertEngine_StateMachine(t *testing.T) {
 	if err := engine.Evaluate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if sender.count() != 2 {
-		t.Fatalf("RESOLVED should notify, got %d", sender.count())
+	if !waitUntil(2*time.Second, func() bool { return sender.count() >= 2 }) {
+		t.Fatal("RESOLVED should notify recovery")
 	}
 	open, _ = rules.LoadOpen(ctx)
 	if len(open) != 0 {
@@ -261,4 +261,51 @@ func TestAlertEngine_RestoreAfterRestart(t *testing.T) {
 	if sender.count() != 1 {
 		t.Fatalf("after restore should not re-notify within silence, got %d", sender.count())
 	}
+}
+
+func TestAlertEngine_DeadlockRegression_MultiAgentNoState(t *testing.T) {
+	// 审查 CRITICAL #1 回归: !met 且无状态的路径曾持锁 return, 多 Agent 下第二次
+	// Evaluate 即自死锁。本测试若死锁将在超时后失败。
+	engine, hub, agents, rules, _, tc := newEngineFixture(t)
+	ctx := context.Background()
+
+	chID := int64(1)
+	// 两个 Agent: 一个高 CPU 满足规则, 一个无报告不满足(常态路径)
+	highID, _ := agents.Create(ctx, &model.Agent{TokenHash: "h1", Hostname: "a1", HostFingerprint: "f1", CreatedAt: 1})
+	lowID, _ := agents.Create(ctx, &model.Agent{TokenHash: "h2", Hostname: "a2", HostFingerprint: "f2", CreatedAt: 1})
+	if _, err := rules.CreateRule(ctx, &model.AlertRule{
+		Name: "CPU", Metric: model.MetricCPU, Operator: ">", Threshold: 80,
+		Duration: 60, Enabled: true, NotifyChannelID: &chID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cpu := 90.0
+	if err := hub.Attach(highID, &fakeConn{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.HandleReport(highID, &model.Report{
+		Type: model.FrameReport, Timestamp: tc.get().Unix(), Hostname: "a1",
+		Data: model.ReportData{CPU: model.CPUInfo{Usage: &cpu}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := hub.Attach(lowID, &fakeConn{}); err != nil {
+		t.Fatal(err)
+	}
+
+	runEval := func(name string) {
+		done := make(chan struct{})
+		go func() {
+			_ = engine.Evaluate(ctx) // 若死锁则永远阻塞
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s deadlocked", name)
+		}
+	}
+	runEval("Evaluate on !met && no-state path")
+	runEval("second Evaluate")
 }

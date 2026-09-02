@@ -20,12 +20,20 @@ func (r *AdminRepo) Count(ctx context.Context) (int, error) {
 	return n, err
 }
 
+var ErrAdminExists = errors.New("repository: admin already exists")
+
+// Create 写入管理员; 用 NOT EXISTS 守卫保证单管理员(防并发初始化竞态产生多账号)。
 func (r *AdminRepo) Create(ctx context.Context, username, passwordHash string) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO admin (username, password_hash, created_at) VALUES (?, ?, ?)`,
+		`INSERT INTO admin (username, password_hash, created_at)
+		 SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM admin)`,
 		username, passwordHash, time.Now().Unix())
 	if err != nil {
 		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, ErrAdminExists
 	}
 	return res.LastInsertId()
 }

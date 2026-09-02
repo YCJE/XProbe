@@ -62,6 +62,9 @@ func (s *Auth) Setup(ctx context.Context, username, password, ua string) error {
 		return err
 	}
 	if _, err := s.admins.Create(ctx, username, hash); err != nil {
+		if errors.Is(err, repository.ErrAdminExists) {
+			return ErrSetupDone
+		}
 		return err
 	}
 	return nil

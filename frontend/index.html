@@ -5,16 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>XProbe · 服务器探针</title>
-    <script>
-      // 主题先于渲染应用, 避免闪烁(设计系统 MASTER §2)
-      (function () {
-        var pref = localStorage.getItem("xprobe-theme") || "system";
-        var dark =
-          pref === "dark" ||
-          (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
-        if (dark) document.documentElement.classList.add("dark");
-      })();
-    </script>
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

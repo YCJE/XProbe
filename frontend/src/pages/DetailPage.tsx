@@ -128,14 +128,18 @@ function linePoints(h: HistoryResponse | null): Pt[] {
   return [];
 }
 function memPoints(h: HistoryResponse | null, s: ServerInfo): Pt[] {
-  if (h?.realtime) return h.realtime.map((r) => ({ x: r.timestamp, mem: r.data.memory.total ? (r.data.memory.used / r.data.memory.total) * 100 : 0 }));
-  if (h?.points_5m) return h.points_5m.map((p) => ({ x: p.timestamp, mem: p.mem }));
+  const out: Pt[] = [];
+  if (h?.points_5m) out.push(...h.points_5m.map((p) => ({ x: p.timestamp, mem: p.mem })));
+  if (h?.realtime) out.push(...h.realtime.map((r) => ({ x: r.timestamp, mem: r.data.memory.total ? (r.data.memory.used / r.data.memory.total) * 100 : 0 })));
+  if (out.length > 0) return out;
   if (h?.points_daily) return h.points_daily.map((p) => ({ x: p.date, mem: p.mem_avg }));
   return s.mem_total ? [{ x: Date.now(), mem: (s.mem_used / s.mem_total) * 100 }] : [];
 }
 function netPoints(h: HistoryResponse | null): Pt[] {
-  if (h?.realtime) return h.realtime.map((r) => ({ x: r.timestamp, rx: 0, tx: 0 }));
-  if (h?.points_5m) return h.points_5m.map((p) => ({ x: p.timestamp, rx: p.rx, tx: p.tx }));
+  const out: Pt[] = [];
+  if (h?.points_5m) out.push(...h.points_5m.map((p) => ({ x: p.timestamp, rx: p.rx, tx: p.tx })));
+  if (h?.realtime) out.push(...h.realtime.map((r) => ({ x: r.timestamp, rx: r.data.network.rx_speed, tx: r.data.network.tx_speed })));
+  if (out.length > 0) return out;
   if (h?.points_daily) return h.points_daily.map((p) => ({ x: p.date, rx: p.rx, tx: p.tx }));
   return [];
 }

@@ -190,51 +190,56 @@ func compare(v float64, op string, threshold float64) bool {
 }
 
 // transition 单 (rule, agent) 状态机推进。
+// 锁内只读状态与决策, 锁外执行 DB 写入与通知(避免持锁期间慢操作阻塞离线钩子)。
 func (e *AlertEngine) transition(ctx context.Context, rule *model.AlertRule, agentID int64, met bool, value *float64) {
 	key := stateKey(rule.ID, agentID)
 	now := e.now()
 
+	type action struct {
+		status    string
+		value     *float64
+		detail    string
+		notify    bool
+	}
+	var act action
+
 	e.mu.Lock()
 	st := e.state[key]
-	if !met {
-		if st != nil {
-			delete(e.state, key)
-			e.mu.Unlock()
-			e.notify(ctx, rule, agentID, StatusResolved, value, "已恢复")
-			_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusResolved, value, true, now.Unix())
-		}
-		return
-	}
-	if st == nil {
+	switch {
+	case !met && st == nil:
+		// 未超阈值且无状态: 无动作(多 Agent 常态路径)
+	case !met:
+		delete(e.state, key)
+		act = action{status: StatusResolved, value: value, detail: "已恢复", notify: true}
+	case st == nil:
 		e.state[key] = &alertState{status: StatusPending, startedAt: now}
-		e.mu.Unlock()
-		_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusPending, value, false, now.Unix())
-		return
-	}
-	switch st.status {
-	case StatusPending:
-		if now.Sub(st.startedAt) >= time.Duration(rule.Duration)*time.Second {
-			st.status = StatusFiring
-			st.lastNotified = now
-			e.mu.Unlock()
-			log.Printf("[alert][security] rule=%d agent=%d FIRING value=%v", rule.ID, agentID, value)
-			_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusFiring, value, true, now.Unix())
-			e.notify(ctx, rule, agentID, StatusFiring, value, fmt.Sprintf("当前值 %v", value))
-			return
-		}
-		_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusPending, value, false, now.Unix())
-	case StatusFiring:
-		// 静默期(设计文档 5.4): FIRING 期间超过静默期仍未恢复则再次通知
-		if now.Sub(st.lastNotified) >= e.silence {
-			st.lastNotified = now
-			e.mu.Unlock()
-			_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusFiring, value, true, now.Unix())
-			e.notify(ctx, rule, agentID, StatusFiring, value, fmt.Sprintf("仍未恢复, 当前值 %v", value))
-			return
-		}
-		_ = e.rules.UpsertState(ctx, rule.ID, agentID, StatusFiring, value, true, now.Unix())
+		act = action{status: StatusPending, value: value} // 仅落库, 不通知
+	case st.status == StatusPending && now.Sub(st.startedAt) >= time.Duration(rule.Duration)*time.Second:
+		st.status = StatusFiring
+		st.lastNotified = now
+		act = action{status: StatusFiring, value: value, detail: fmt.Sprintf("当前值 %v", value), notify: true}
+	case st.status == StatusPending:
+		act = action{status: StatusPending, value: value} // 仍 PENDING, 仅更新值
+	case st.status == StatusFiring && now.Sub(st.lastNotified) >= e.silence:
+		st.lastNotified = now
+		act = action{status: StatusFiring, value: value, detail: fmt.Sprintf("仍未恢复, 当前值 %v", value), notify: true}
+	case st.status == StatusFiring:
+		act = action{status: StatusFiring, value: value} // 静默期内, 仅更新值
 	}
 	e.mu.Unlock()
+
+	if act.status == "" {
+		return
+	}
+	if err := e.rules.UpsertState(ctx, rule.ID, agentID, act.status, act.value, act.notify, now.Unix()); err != nil {
+		log.Printf("[alert] persist rule=%d agent=%d: %v", rule.ID, agentID, err)
+	}
+	if act.notify {
+		if act.status == StatusFiring {
+			log.Printf("[alert][security] rule=%d agent=%d FIRING value=%v", rule.ID, agentID, act.value)
+		}
+		e.notify(ctx, rule, agentID, act.status, act.value, act.detail)
+	}
 }
 
 // HandleOffline 离线事件: agent_offline 规则即时 FIRING(设计文档 5.4)。

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/YCJE/XProbe/internal/model"
@@ -19,6 +20,9 @@ type Aggregator struct {
 
 	retention5m    time.Duration // 默认 90 天
 	retentionDaily time.Duration // 默认 365 天
+
+	mu      sync.Mutex
+	lastAgg map[int64]int64 // per-agent 上次聚合时间戳水位线, 防窗口重叠重复计数
 }
 
 func NewAggregator(hub *Hub, records *repository.RecordRepo, agents *repository.AgentRepo) *Aggregator {
@@ -26,6 +30,7 @@ func NewAggregator(hub *Hub, records *repository.RecordRepo, agents *repository.
 		hub: hub, records: records, agents: agents,
 		retention5m:    90 * 24 * time.Hour,
 		retentionDaily: 365 * 24 * time.Hour,
+		lastAgg:        map[int64]int64{},
 	}
 }
 
@@ -61,9 +66,13 @@ func (a *Aggregator) AggregateOnce(ctx context.Context, now time.Time) error {
 		if len(reports) == 0 {
 			continue
 		}
+		// 仅聚合自上次水位线之后的新帧, 避免窗口重叠重复计数(审查 MEDIUM #7)
+		a.mu.Lock()
+		watermark := a.lastAgg[id]
+		a.mu.Unlock()
 		points := make([]model.Report, 0, len(reports))
 		for _, r := range reports {
-			if now.Unix()-r.Timestamp <= 600 { // 仅取最近 10 分钟窗口, 避免重复聚合
+			if r.Timestamp > watermark && r.Timestamp <= now.Unix() {
 				points = append(points, r)
 			}
 		}
@@ -71,6 +80,9 @@ func (a *Aggregator) AggregateOnce(ctx context.Context, now time.Time) error {
 			continue
 		}
 		mp := Aggregate5m(points, now.Unix())
+		a.mu.Lock()
+		a.lastAgg[id] = now.Unix()
+		a.mu.Unlock()
 		if err := a.records.Insert5m(ctx, id, now.Unix(), mp); err != nil {
 			lastErr = err
 		}

@@ -54,7 +54,6 @@ func (d Deps) HandleHistory(c *gin.Context) {
 	switch c.Query("range") {
 	case "1h", "6h":
 		points := d.Hub.ReportSnapshot(id)
-		// 按范围裁剪(环形缓冲 3h; 1h 取最近 1h)
 		cut := now.Add(-time.Hour)
 		if c.Query("range") == "6h" {
 			cut = now.Add(-6 * time.Hour)
@@ -65,8 +64,18 @@ func (d Deps) HandleHistory(c *gin.Context) {
 				trimmed = append(trimmed, p)
 			}
 		}
+		// 6h = 环形缓冲(≤3h) + 5min 聚合(3-6h)拼接(设计文档 6.5, 审查 MEDIUM #6)
+		var agg []model.MetricPoint
+		if c.Query("range") == "6h" {
+			var qerr error
+			if agg, qerr = d.Records.Query5m(c.Request.Context(), id,
+				now.Add(-6*time.Hour).Unix(), now.Add(-3*time.Hour).Unix()); qerr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+				return
+			}
+		}
 		c.JSON(http.StatusOK, model.HistoryResponse{
-			Range: c.Query("range"), Granularity: "3s", Realtime: trimmed})
+			Range: c.Query("range"), Granularity: "3s", Realtime: trimmed, Points5m: agg})
 	case "12h", "1d", "2d":
 		dur := map[string]time.Duration{"12h": 12 * time.Hour, "1d": 24 * time.Hour, "2d": 48 * time.Hour}[c.Query("range")]
 		points, err := d.Records.Query5m(c.Request.Context(), id, now.Add(-dur).Unix(), now.Unix())
