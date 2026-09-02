@@ -10,7 +10,9 @@
 - **凭证哈希存储**:Agent Token / 注册码 / 登录会话在数据库仅存 SHA256 哈希
 - **SSRF 防护**:Webhook/Telegram/SMTP 通知统一走内网过滤 + DNS 预解析 + 重定向检测 + 响应体限读
 - **网络探测**:ICMP 10 包采样,报告延迟/最小/最大/抖动/丢包完整统计;IPv4/IPv6 双栈
-- **NodeGet 风格仪表盘**:玻璃拟态卡片、SVG 圆环指标、延迟小格子图、卡片/表格双视图(地图视图 v2)、深浅双主题(WCAG AA 对比度实测)
+- **NodeGet 风格仪表盘**:玻璃拟态卡片、SVG 圆环指标、延迟小格子图、卡片/表格/地图三视图(轻量地图:国家质心 + 手动经纬度,免 MaxMind)、深浅双主题(WCAG AA 对比度实测)、布局自定义(密度/显示项)
+- **服务监控**:Server 主动对 HTTP/TCP/ICMP 端点拨测,45 天在线率日格 + 最近 64 次结果条 + DOWN/UP 转移通知,公开页集成(与 Agent 通道无关,不违反 S1)
+- **报表**:近 12 个月流量堆叠图、月成本按币种合计与手动汇率折算 CNY、30 天续费提醒
 - **告警 + 通知**:阈值状态机(防抖/静默/恢复通知),含月流量配额与 VPS 到期提醒;Webhook/Telegram/SMTP
 - **公开分享页**:`/s/:share_id` 免登录状态页,白名单字段(无 IP/Token/配置)
 - **单二进制部署**:前端 embed + Agent 二进制内嵌分发,一键安装完全自包含
@@ -42,10 +44,13 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-se
 ### 3. 被控服务器安装 Agent
 
 ```bash
-curl -fsSL https://your-server.com/install.sh | bash -s -- --server https://your-server.com --code ABC123XY
+curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server https://your-server.com --code ABC123XY
 ```
 
 安装脚本自动:校验 SHA256 → 创建非特权用户 → 生成 install_salt → 获取证书指纹(Pinning)→ 解锁 unprivileged ICMP → setcap → systemd 服务。
+> 也可在被控服务器放一份 `scripts/install-agent.sh` 后从 `https://your-server.com/install.sh` 提供(脚本与二进制同源校验)。
+
+> 注:源码 checkout 直接编译的 Server 不含前端面板(访问显示占位页),官方 Release/Docker 产物已内嵌;本地开发请先 `make build-frontend`。
 
 ### 4. 数据备份
 
@@ -60,13 +65,16 @@ scripts/backup.sh /var/lib/xprobe-server   # sqlite3 .backup 在线一致性快�
 - [设计文档 v1.3](docs/server_probe_design_v1.3.md) —— 产品规格、架构、安全设计、部署运维、里程碑(M0-M6)与 AI 开发提示词
 - [设计系统 MASTER](docs/design-system/MASTER.md) —— 前端视觉唯一依据(双主题 tokens、WCAG 对比度实测、组件规格)
 - [改进路线图](docs/ROADMAP.md) —— 与 Nezha/Komari/NodeGet 的功能对标与实施顺序
+- [Agent 占用基准](docs/BENCHMARK.md) —— 测量方法、当前实测与优化方向
 
 ## 开发
 
 ```bash
-make test          # Go 全量测试(12 包, 60+ 用例)
-make build-linux   # v1 发布矩阵:linux amd64/arm64 Server + amd64/arm64/armv7 Agent(纯 Go 无 cgo)
-make audit-noexec  # S4 审计门禁:Agent 代码零命令执行符号
+make test             # Go 全量测试(12 包, 60+ 用例)
+make build-frontend   # 构建面板并拷贝到 server/web(编译带面板的 Server 前必跑)
+make build-linux      # 快速交叉编译(不含面板;发布请用 make release)
+make release          # 发布产物:前端内嵌 + Agent 内嵌 + SHA256(与 CI 同口径)
+make audit-noexec     # S4 审计门禁:Agent 代码零命令执行符号
 cd frontend && npm test   # 前端逻辑测试
 ```
 

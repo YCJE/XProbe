@@ -96,7 +96,7 @@ function CodesPanel() {
   };
 
   const installCmd = (code: string) =>
-    `curl -fsSL ${base}/install.sh | bash -s -- --server ${base} --code ${code}`;
+    `curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server ${base} --code ${code}`;
 
   return (
     <GlassCard>
