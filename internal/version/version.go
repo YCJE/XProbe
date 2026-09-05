@@ -2,4 +2,4 @@
 // go build -ldflags "-X github.com/YCJE/XProbe/internal/version.Version=1.0.0"
 package version
 
-var Version = "0.2.0"
+var Version = "0.2.1"
