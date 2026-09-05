@@ -15,7 +15,9 @@ CONFIG_DIR="/etc/xprobe-server"
 BIN=/usr/local/bin/xprobe-server
 CERT_PATH=""   # 可选: 已有证书 fullchain.pem(如 certbot 签发)
 KEY_PATH=""    # 可选: 对应 privkey.pem
-DOMAIN=""      # 可选: 仅用于摘要展示
+DOMAIN=""      # 可选: 配置域名与 HTTPS 证书(自动 certbot 签发)
+EMAIL=""       # 可选: 证书到期提醒邮箱
+SKIP_TLS=0     # --skip-tls 跳过 TLS 向导
 
 # ---------- 输出工具(彩色, 非终端时自动退化为纯文本) ----------
 if [ -t 2 ]; then
@@ -42,6 +44,8 @@ while [[ $# -gt 0 ]]; do
         --cert) CERT_PATH="$2"; shift 2;;
         --key) KEY_PATH="$2"; shift 2;;
         --domain) DOMAIN="$2"; shift 2;;
+        --email) EMAIL="$2"; shift 2;;
+        --skip-tls) SKIP_TLS=1; shift;;
         *) shift;;
     esac
 done
