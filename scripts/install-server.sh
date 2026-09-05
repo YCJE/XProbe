@@ -25,6 +25,29 @@ if [ -t 2 ]; then
 else
     C_OK=""; C_WARN=""; C_ERR=""; C_STEP=""; C_DIM=""; C_END=""
 fi
+# 慢命令转圈指示: spinner_start "描述"; spinner_stop 0/1 "结果文案"(非交互自动退化)
+SPINNER_PID=""
+SPINNER_TEXT="处理中"
+T0=0
+spinner_start() {
+    step "$1"
+    T0=$(date +%s)
+    [ "$INTERACTIVE" -ge 1 ] || return 0
+    ( while :; do for F in '\u288b \u2899 \u28b9'; do
+        printf '\r    %s %s' "$F" "$SPINNER_TEXT"; sleep 0.15; done; done ) &
+    SPINNER_PID=$!
+}
+spinner_stop() {
+    if [ -n "$SPINNER_PID" ]; then
+        kill "$SPINNER_PID" 2>/dev/null || true
+        wait "$SPINNER_PID" 2>/dev/null || true
+        SPINNER_PID=""
+        printf '\033[K'
+    fi
+    ELAPSED=$(( $(date +%s) - T0 ))
+    TAIL=""; [ "$ELAPSED" -gt 0 ] && TAIL=" (${ELAPSED}s)"
+    if [ "${1:-0}" = "0" ]; then ok "${2:-完成}${TAIL}"; else warn "${2:-失败}${TAIL}"; fi
+}
 step()  { printf '%s\n' "${C_STEP}==> ${C_END}${*}"; }
 ok()    { printf '%s\n' "${C_OK}  ✔ ${C_END}${*}"; }
 warn()  { printf '%s\n' "${C_WARN}  ⚠ ${C_END}${*}"; }
@@ -219,11 +242,26 @@ if [ "$TLS_MODE" = "certbot" ]; then
     if command -v certbot >/dev/null 2>&1; then
         ok "certbot 已安装"
     else
+            CLOG=/tmp/xprobe-certbot-install.log
         if command -v apt-get >/dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq certbot && ok "已安装(apt)"
+            SPINNER_TEXT="正在安装 certbot(apt)"
+            spinner_start "安装 certbot(apt)"
+            if apt-get update -qq && apt-get install -y -qq certbot >>"$CLOG" 2>&1; then
+                spinner_stop 0 "certbot 安装完成"
+            else
+                spinner_stop 1 "certbot 安装失败, 日志: $CLOG"
+                die "请参照 README 手动安装 certbot 后重跑本脚本"
+            fi
         elif command -v dnf >/dev/null 2>&1; then
+            SPINNER_TEXT="正在安装 certbot(dnf)"
+            spinner_start "安装 certbot(dnf)"
             dnf install -y epel-release >/dev/null 2>&1 || true
-            dnf install -y -q certbot && ok "已安装(dnf)"
+            if dnf install -y -q certbot >>"$CLOG" 2>&1; then
+                spinner_stop 0 "certbot 安装完成"
+            else
+                spinner_stop 1 "certbot 安装失败, 日志: $CLOG"
+                die "请参照 README 手动安装 certbot 后重跑本脚本"
+            fi
         else
             warn "无法自动安装 certbot(不支持的包管理器)"
             echo "  ${C_DIM}手动: snap install core && snap install --classic certbot${C_END}"
@@ -260,10 +298,17 @@ if [ "$TLS_MODE" = "certbot" ]; then
     fi
     CERTBOT_ARGS="certonly --standalone -d $DOMAIN --agree-tos --keep-until-expiring"
     if [ -n "$EMAIL" ]; then CERTBOT_ARGS="$CERTBOT_ARGS -m $EMAIL"; else CERTBOT_ARGS="$CERTBOT_ARGS --register-unsafely-without-email"; fi
-    if certbot $CERTBOT_ARGS; then
-        ok "证书已签发"
+    CLOG=/tmp/xprobe-certbot.log
+    SPINNER_TEXT="正在向 Let's Encrypt 申请证书(通常 5~30 秒)"
+    spinner_start "向 Let's Encrypt 申请证书"
+    if certbot $CERTBOT_ARGS >"$CLOG" 2>&1; then
+        spinner_stop 0 "证书已签发"
     else
-        warn "签发失败(常见: 80 未放行/域名未解析)。可修复后重跑本脚本, 先跳过 TLS"
+        spinner_stop 1 "签发失败"
+        echo "  ${C_DIM}──── certbot 日志尾部 ────${C_END}"
+        tail -n 12 "$CLOG" | sed 's/^/    /'
+        echo "  ${C_DIM}完整日志: $CLOG${C_END}"
+        warn "常见原因: 80 端口未放行/被占用、域名未解析到本机。修复后重跑脚本即可"
         TLS_MODE="skip"
     fi
 fi
