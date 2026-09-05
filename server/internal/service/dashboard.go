@@ -28,6 +28,7 @@ func BuildDashboardServers(agents []model.Agent, hub *Hub) []model.DashboardServ
 			PriceAmount:       a.PriceAmount,
 			PriceCurrency:     a.PriceCurrency,
 			PriceCycle:        a.PriceCycle,
+			Notes:             a.Notes,
 			TrafficQuotaBytes: a.TrafficQuotaBytes,
 			GeoLat:            a.GeoLat,
 			GeoLon:            a.GeoLon,

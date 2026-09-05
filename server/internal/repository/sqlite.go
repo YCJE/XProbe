@@ -46,4 +46,6 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 var incrementalALTERs = []string{
 	"ALTER TABLE agents ADD COLUMN geo_lat REAL",
 	"ALTER TABLE agents ADD COLUMN geo_lon REAL",
+	"ALTER TABLE agents ADD COLUMN notes TEXT",
+	"ALTER TABLE register_codes ADD COLUMN bind_agent_id INTEGER",
 }

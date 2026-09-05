@@ -58,6 +58,8 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 
 			// 服务器
 			authed.GET("/servers", d.HandleListServers)
+			authed.POST("/servers", d.HandleCreateServerNode)
+			authed.POST("/servers/:id/install-code", d.HandleNodeInstallCode)
 			authed.GET("/servers/:id", d.HandleServerDetail)
 			authed.GET("/servers/:id/history", d.HandleHistory)
 			authed.GET("/servers/:id/ping-history", d.HandlePingHistory)

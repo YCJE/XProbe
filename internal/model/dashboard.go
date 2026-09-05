@@ -60,6 +60,7 @@ type DashboardServer struct {
 	PriceCurrency     string   `json:"price_currency"`
 	PriceCycle        string   `json:"price_cycle"`
 	TrafficQuotaBytes int64    `json:"traffic_quota_bytes"`
+	Notes             string `json:"notes"`
 	GeoLat            *float64 `json:"geo_lat"`
 	GeoLon            *float64 `json:"geo_lon"`
 	LastSeen          int64    `json:"last_seen"`
@@ -137,4 +138,10 @@ type HistoryResponse struct {
 	Points5m    []MetricPoint `json:"points_5m,omitempty"`
 	PointsDaily []DailyPoint  `json:"points_daily,omitempty"`
 	Realtime    []Report      `json:"realtime,omitempty"` // 1h/6h 环形缓冲原始帧
+}
+
+// CreateNodeRequest 预创建节点(Komari 模式): 先建节点拿安装命令, Agent 注册时绑定。
+type CreateNodeRequest struct {
+	Name  string `json:"name"`
+	Notes string `json:"notes"`
 }

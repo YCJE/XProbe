@@ -21,11 +21,11 @@ export function GlassCard({
 }
 
 export function Button({
-  children, onClick, variant = "primary", type = "button", className, disabled,
+  children, onClick, variant = "primary", type = "button", className, disabled, title,
 }: {
   children: ReactNode; onClick?: () => void;
   variant?: "primary" | "ghost" | "danger"; type?: "button" | "submit";
-  className?: string; disabled?: boolean;
+  className?: string; disabled?: boolean; title?: string;
 }) {
   const styles = {
     primary: "bg-primary text-primary-fg hover:opacity-90",
@@ -36,6 +36,7 @@ export function Button({
     <button
       type={type}
       disabled={disabled}
+      title={title}
       onClick={onClick}
       className={cn("rounded-lg px-4 py-2 text-sm transition-opacity min-h-[36px]", styles, disabled && "opacity-50", className)}
     >

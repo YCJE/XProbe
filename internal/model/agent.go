@@ -17,6 +17,7 @@ type Agent struct {
 	Region            string
 	CountryCode       string
 	ISP               string
+	Notes             string
 	TagIDs            string // JSON 数组字符串
 	ExpiresAt         int64
 	PriceAmount       float64

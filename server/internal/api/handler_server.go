@@ -14,6 +14,60 @@ import (
 	"github.com/YCJE/XProbe/server/internal/service"
 )
 
+// HandleCreateServerNode POST /api/v1/servers: 预创建节点(Komari 模式)。
+// 创建后返回绑定该节点的一次性注册码, 用于拼装一键安装命令。
+func (d Deps) HandleCreateServerNode(c *gin.Context) {
+	var req model.CreateNodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
+		return
+	}
+	if len(req.Name) > 128 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name too long"})
+		return
+	}
+	if !service.SafeLabel(req.Notes, 500) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notes"})
+		return
+	}
+	now := time.Now().Unix()
+	id, err := d.Agents.Create(c.Request.Context(), &model.Agent{
+		DisplayName: req.Name,
+		Notes:       req.Notes,
+		Hostname:    req.Name, // 注册后会被 Agent 真实主机名覆盖
+		CreatedAt:   now,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	code, expires, err := d.Registry.IssueCodeForNode(c.Request.Context(), id)
+	if err != nil {
+		_ = d.Agents.DeleteCascade(c.Request.Context(), id)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id, "code": code, "expires_at": expires.Unix()})
+}
+
+// HandleNodeInstallCode POST /api/v1/servers/:id/install-code: 为节点重新生成绑定注册码。
+func (d Deps) HandleNodeInstallCode(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if _, err := d.Agents.Get(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	code, expires, err := d.Registry.IssueCodeForNode(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": code, "expires_at": expires.Unix()})
+}
+
 // HandleListServers GET /api/v1/servers: 元数据 + 实时数据合并(设计文档 6.8)。
 func (d Deps) HandleListServers(c *gin.Context) {
 	agents, err := d.Agents.List(c.Request.Context())

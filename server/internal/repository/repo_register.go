@@ -19,9 +19,14 @@ func NewRegisterCodeRepo(db *sql.DB) *RegisterCodeRepo { return &RegisterCodeRep
 
 // Create 写入注册码哈希与过期时间。
 func (r *RegisterCodeRepo) Create(ctx context.Context, codeHash string, expiresAt int64) error {
+	return r.CreateBind(ctx, codeHash, expiresAt, 0)
+}
+
+// CreateBind 创建注册码(可绑定到预创建节点)。
+func (r *RegisterCodeRepo) CreateBind(ctx context.Context, codeHash string, expiresAt int64, bindAgentID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO register_codes (code_hash, created_at, expires_at, used) VALUES (?, ?, ?, 0)`,
-		codeHash, time.Now().Unix(), expiresAt)
+		`INSERT INTO register_codes (code_hash, created_at, expires_at, used, bind_agent_id) VALUES (?, ?, ?, 0, ?)`,
+		codeHash, time.Now().Unix(), expiresAt, bindAgentID)
 	if err != nil {
 		return fmt.Errorf("insert register_code: %w", err)
 	}
@@ -44,25 +49,26 @@ var ErrCodeUsed = errors.New("repository: register code already used")
 
 // GetActive 返回未使用且未过期的注册码哈希记录(过期视为无效但与已使用区分错误码)。
 // 返回 (found, expired)。
-func (r *RegisterCodeRepo) GetActive(ctx context.Context, codeHash string, now int64) (found, expired bool, err error) {
+func (r *RegisterCodeRepo) GetActive(ctx context.Context, codeHash string, now int64) (found, expired bool, bindAgentID int64, err error) {
 	var expires int64
 	var used int
+	var bind sql.NullInt64
 	qerr := r.db.QueryRowContext(ctx,
-		`SELECT expires_at, used FROM register_codes WHERE code_hash = ?`, codeHash).
-		Scan(&expires, &used)
+		`SELECT expires_at, used, COALESCE(bind_agent_id, 0) FROM register_codes WHERE code_hash = ?`, codeHash).
+		Scan(&expires, &used, &bind)
 	if errors.Is(qerr, sql.ErrNoRows) {
-		return false, false, nil
+		return false, false, 0, nil
 	}
 	if qerr != nil {
-		return false, false, qerr
+		return false, false, 0, qerr
 	}
 	if used == 1 {
-		return true, false, ErrCodeUsed
+		return true, false, 0, ErrCodeUsed
 	}
 	if now >= expires {
-		return true, true, nil
+		return true, true, 0, nil
 	}
-	return true, false, nil
+	return true, false, bind.Int64, nil
 }
 
 // Consume 一次性消费注册码(乐观更新: 仅未使用时生效), 返回是否消费成功。

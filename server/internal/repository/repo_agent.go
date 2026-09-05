@@ -22,7 +22,7 @@ func NewAgentRepo(db *sql.DB) *AgentRepo { return &AgentRepo{db: db} }
 const agentCols = `id, token_hash, hostname, display_name, os, arch, agent_version,
 	host_fingerprint, ipv4, ipv6, region, country_code, isp, tag_ids,
 	expires_at, price_amount, price_currency, price_cycle, traffic_quota_bytes,
-	geo_lat, geo_lon, created_at, last_seen, online`
+	geo_lat, geo_lon, notes, created_at, last_seen, online`
 
 func scanAgent(row interface{ Scan(...any) error }) (*model.Agent, error) {
 	var a model.Agent
@@ -32,10 +32,11 @@ func scanAgent(row interface{ Scan(...any) error }) (*model.Agent, error) {
 	var expiresAt, quota sql.NullInt64
 	var priceAmount sql.NullFloat64
 	var geoLat, geoLon sql.NullFloat64
+	var notes sql.NullString
 	err := row.Scan(&a.ID, &a.TokenHash, &a.Hostname, &display, &a.OS, &a.Arch, &a.AgentVersion,
 		&fp, &a.IPv4, &a.IPv6, &region, &cc, &isp, &tagIDs,
 		&expiresAt, &priceAmount, &priceCurrency, &priceCycle, &quota,
-		&geoLat, &geoLon, &a.CreatedAt, &a.LastSeen, &a.Online)
+		&geoLat, &geoLon, &notes, &a.CreatedAt, &a.LastSeen, &a.Online)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -52,6 +53,7 @@ func scanAgent(row interface{ Scan(...any) error }) (*model.Agent, error) {
 	a.PriceAmount = priceAmount.Float64
 	a.PriceCurrency = priceCurrency.String
 	a.PriceCycle = priceCycle.String
+	a.Notes = notes.String
 	a.TrafficQuotaBytes = quota.Int64
 	if geoLat.Valid {
 		v := geoLat.Float64

@@ -6,7 +6,7 @@ import type { ServerInfo } from "../lib/types";
 function server(over: Partial<ServerInfo>): ServerInfo {
   return {
     id: 1, hostname: "h", display_name: "", online: true, os: "", arch: "", agent_version: "",
-    ipv4: "1.2.3.4", ipv6: "", region: "", country_code: "US", isp: "", tags: [],
+    ipv4: "1.2.3.4", ipv6: "", region: "", country_code: "US", isp: "", notes: "", tags: [],
     cpu: 10, cores: 2, mem_total: 100, mem_used: 50, swap_total: 0, swap_used: 0, disk: [],
     rx_speed: 0, tx_speed: 0, tcp_connections: 0, udp_connections: 0,
     traffic_monthly: { month: "2026-08", rx_bytes: 0, tx_bytes: 0 },

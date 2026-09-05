@@ -105,6 +105,17 @@ func (r *AgentRepo) ResetFingerprint(ctx context.Context, id int64) error {
 	return nil
 }
 
+// UpdateBind 将预创建节点与 Agent 注册信息绑定(Komari 模式)。
+func (r *AgentRepo) UpdateBind(ctx context.Context, id int64, a *model.Agent) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE agents SET
+		token_hash = ?, hostname = ?, os = ?, arch = ?, agent_version = ?,
+		host_fingerprint = ?, ipv4 = ?, last_seen = ?, online = 1
+		WHERE id = ?`,
+		a.TokenHash, a.Hostname, a.OS, a.Arch, a.AgentVersion,
+		a.HostFingerprint, a.IPv4, a.LastSeen, id)
+	return err
+}
+
 // RotateToken 吊销旧 Token 并写入新 Token 哈希(设计文档 7.5 v1.3)。
 func (r *AgentRepo) RotateToken(ctx context.Context, id int64, newTokenHash string) error {
 	res, err := r.db.ExecContext(ctx,

@@ -43,6 +43,26 @@ func NewRegistry(agents *repository.AgentRepo, codes *repository.RegisterCodeRep
 // SetCodeTTL 覆盖注册码有效期(测试用)。
 func (s *Registry) SetCodeTTL(d time.Duration) { s.codeTTL = d }
 
+// IssueCodeForNode 为预创建节点生成绑定注册码(Komari 模式)。
+func (s *Registry) IssueCodeForNode(ctx context.Context, agentID int64) (string, time.Time, error) {
+	n, err := s.codes.CountActive(ctx, s.now().Unix())
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	if n >= 5 {
+		return "", time.Time{}, ErrTooManyCodes
+	}
+	code, err := randomCode(10)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	expires := s.now().Add(s.codeTTL)
+	if err := s.codes.CreateBind(ctx, pkg.SHA256Hex(code), expires.Unix(), agentID); err != nil {
+		return "", time.Time{}, err
+	}
+	return code, expires, nil
+}
+
 // IssueCode 生成一次性注册码: 随机 10 字符, 有效期 15 分钟, 未使用上限 5 个。
 // 返回注册码原文(仅此一次, 服务端只存哈希)。
 func (s *Registry) IssueCode(ctx context.Context) (string, time.Time, error) {
@@ -87,7 +107,7 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 	}
 
 	codeHash := pkg.SHA256Hex(req.RegisterCode)
-	found, expired, err := s.codes.GetActive(ctx, codeHash, s.now().Unix())
+	found, expired, bindID, err := s.codes.GetActive(ctx, codeHash, s.now().Unix())
 	if err != nil {
 		if errors.Is(err, repository.ErrCodeUsed) {
 			return nil, ErrCodeUsed
@@ -101,6 +121,11 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 		return nil, ErrCodeExpired
 	}
 
+	// 指纹冲突预检(绑定模式排除自身; 全局 UNIQUE 兜底)
+	if other, gerr := s.agents.GetByFingerprint(ctx, req.HostFingerprint); gerr == nil && other != nil && other.ID != bindID {
+		return nil, ErrFingerprintConflict
+	}
+
 	// 主机指纹唯一约束(设计文档 7.5): 冲突返回 409 由管理员裁决
 	if existing, gerr := s.agents.GetByFingerprint(ctx, req.HostFingerprint); gerr == nil && existing != nil {
 		return nil, ErrFingerprintConflict
@@ -111,6 +136,29 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 		return nil, err
 	}
 	now := s.now().Unix()
+	resp := &model.RegisterResponse{Token: token, AgentID: 0}
+
+	if bindID > 0 {
+		// 绑定模式: 绑定到预创建节点(更新该行而非新建)
+		if err := s.agents.UpdateBind(ctx, bindID, &model.Agent{
+			TokenHash:       pkg.SHA256Hex(token),
+			Hostname:        req.Hostname,
+			OS:              req.OS,
+			Arch:            req.Arch,
+			AgentVersion:    req.AgentVersion,
+			HostFingerprint: req.HostFingerprint,
+			IPv4:            firstNonEmpty(req.IPv4, remoteIP),
+			LastSeen:        now,
+		}); err != nil {
+			return nil, err
+		}
+		if consumed, cerr := s.codes.Consume(ctx, codeHash, bindID, now); cerr != nil || !consumed {
+			return nil, ErrCodeUsed
+		}
+		resp.AgentID = bindID
+		return resp, nil
+	}
+
 	agent := &model.Agent{
 		TokenHash:       pkg.SHA256Hex(token),
 		Hostname:        req.Hostname,
@@ -126,19 +174,17 @@ func (s *Registry) Register(ctx context.Context, req *model.RegisterRequest, rem
 	if err != nil {
 		return nil, err
 	}
-
-	// 一次性消费(乐观更新); 并发抢注失败方回滚删除自身
-	consumed, err := s.codes.Consume(ctx, codeHash, id, now)
-	if err != nil {
+	consumed, cerr := s.codes.Consume(ctx, codeHash, id, now)
+	if cerr != nil {
 		_ = s.agents.DeleteCascade(ctx, id)
-		return nil, err
+		return nil, cerr
 	}
 	if !consumed {
 		_ = s.agents.DeleteCascade(ctx, id)
 		return nil, ErrCodeUsed
 	}
-
-	return &model.RegisterResponse{Token: token, AgentID: id}, nil
+	resp.AgentID = id
+	return resp, nil
 }
 
 // ListCodes 管理页注册码列表。
@@ -150,6 +196,9 @@ func (s *Registry) ListCodes(ctx context.Context) ([]model.RegisterCodeInfo, err
 func (s *Registry) DeleteCode(ctx context.Context, hash string) error {
 	return s.codes.Delete(ctx, hash)
 }
+
+// SafeLabel 导出版(供 API 层复用)。
+func SafeLabel(s string, max int) bool { return safeLabel(s, max) }
 
 // safeLabel 可打印安全标签: 排除控制字符与空白(防日志注入), 限长。
 func safeLabel(s string, max int) bool {

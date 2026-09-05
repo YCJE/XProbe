@@ -11,6 +11,7 @@ export interface ServerInfo {
   region: string;
   country_code: string;
   isp: string;
+  notes: string;
   tags: number[];
   cpu: number | null;
   cores: number;

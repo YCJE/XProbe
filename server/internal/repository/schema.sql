@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS agents (
     traffic_quota_bytes INTEGER,          -- 0=不限
     geo_lat REAL,                         -- 手动坐标(NodeGet 地图, v1.4; 空=按国家质心)
     geo_lon REAL,
+    notes TEXT,                           -- 备注(Komari 节点备注, 管理员设置)
     last_seen INTEGER,
     online INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -55,7 +56,8 @@ CREATE TABLE IF NOT EXISTS register_codes (
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     used INTEGER DEFAULT 0,
-    used_by_agent_id INTEGER
+    used_by_agent_id INTEGER,
+    bind_agent_id INTEGER                 -- 预创建节点绑定: 该码注册的 Agent 绑定到此节点
 );
 
 -- 告警规则
