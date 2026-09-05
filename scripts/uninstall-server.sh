@@ -52,6 +52,7 @@ ok "已移除"
 if [ "$PURGE" = "1" ]; then
     step "PURGE: 删除数据与配置"
     rm -rf "$DATA_DIR" "$CONFIG_DIR"
+    rm -f /etc/letsencrypt/renewal-hooks/deploy/xprobe.sh
     id xprobe &>/dev/null && userdel xprobe 2>/dev/null && ok "已删除 xprobe 用户" || true
     ok "全部数据已清除"
 else

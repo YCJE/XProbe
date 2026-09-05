@@ -39,7 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-se
 
 ### 2. 配置域名与 HTTPS 证书(推荐)
 
-默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。有域名时建议换成正式证书。
+默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。
+
+**方式 A(推荐):一键安装脚本已内置 TLS 向导**——安装完成的最后一步会询问「是否现在配置域名与 HTTPS 证书?」:选择 Y 则自动安装 certbot、引导输入域名与邮箱、签发证书、配置续期钩子并重启,全程无需手动拷贝编辑;非交互环境可用参数直达:`install-server.sh --domain probe.example.com --email you@mail.com`,或 `--skip-tls` 跳过。
+
+**方式 B(手动)**:按以下步骤操作。
 
 #### 前置条件
 
@@ -73,10 +77,11 @@ cp /etc/letsencrypt/live/probe.example.com/fullchain.pem /var/lib/xprobe-server/
 cp /etc/letsencrypt/live/probe.example.com/privkey.pem  /var/lib/xprobe-server/certs/
 chown -R xprobe:xprobe /var/lib/xprobe-server/certs
 
-# 写入配置(或全新安装时直接加参数: install-server.sh --cert <fullchain> --key <privkey> --domain probe.example.com):
-# 编辑 /etc/xprobe-server/config.yml 的 tls.cert / tls.key 指向上方两个文件
+# 写入配置后重启
 systemctl restart xprobe-server
 ```
+
+> 手动方式只有一个长期注意点:证书拷贝是一次性的,依赖第 3 步那样的续期钩子(或定期 cron 拷贝)保持更新;向导方式(方式 A)已自动装好钩子。
 
 - **续期**:apt 方式安装会自动注册 `certbot renew` 定时器;证书续期后 XProbe 热加载自动生效, 无需重启
 - **80 端口不方便开放?**:改用 DNS 验证(`certbot certonly --manual --preferred-challenges dns -d 域名`, 按提示加 TXT 记录), 或安装对应 DNS 插件实现全自动

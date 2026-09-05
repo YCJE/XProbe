@@ -159,8 +159,7 @@ sleep 2
 step "自检"
 if [ "$(systemctl is-active xprobe-server)" != "active" ]; then
     echo
-    printf '%s
-' "${C_ERR}  ✘ 服务未运行, 最近日志:${C_END}"
+    printf '%s\n' "${C_ERR}  ✘ 服务未运行, 最近日志:${C_END}"
     journalctl -u xprobe-server -n 12 --no-pager | sed 's/^/    /' || true
     cat >&2 <<'MSG'
 
@@ -172,29 +171,148 @@ MSG
     exit 1
 fi
 ok "服务运行中"
+
+# ---------- 7. TLS 向导(域名与 HTTPS 证书) ----------
+# 交互判定: 终端直接可用=1; 管道但有 /dev/tty(SSH)=2; 全无=0(仅参数模式)
+INTERACTIVE=0
+if [ -t 0 ]; then INTERACTIVE=1
+elif [ -e /dev/tty ]; then INTERACTIVE=2
+fi
+ASK() {
+    REPLY=""
+    if [ "$INTERACTIVE" -ge 1 ]; then
+        read -r -p "$1" REPLY < /dev/tty 2>/dev/null || REPLY=""
+    fi
+}
+
+CERT_PATH=""
+KEY_PATH=""
+TLS_MODE="skip"
+if [ -n "$DOMAIN" ]; then
+    TLS_MODE="certbot"                       # 参数模式: 非交互直接签发
+elif [ "$SKIP_TLS" = "1" ]; then
+    TLS_MODE="skip"
+elif [ "$INTERACTIVE" -ge 1 ]; then
+    echo
+    step "TLS 向导: 配置域名与 HTTPS 证书"
+    echo "  ${C_DIM}配置后浏览器无证书告警, Agent 安装命令自动带上域名与新指纹。${C_END}"
+    ASK "  是否现在配置? [Y/n]: "
+    case "${REPLY:-Y}" in
+        [nN]*) TLS_MODE="skip";;
+        *)     TLS_MODE="certbot";;
+    esac
+else
+    SKIP_HINT=1
+fi
+
+if [ "$TLS_MODE" = "certbot" ]; then
+    step "TLS: 安装 certbot"
+    if command -v certbot >/dev/null 2>&1; then
+        ok "certbot 已安装"
+    else
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq certbot && ok "已安装(apt)"
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y epel-release >/dev/null 2>&1 || true
+            dnf install -y -q certbot && ok "已安装(dnf)"
+        else
+            warn "无法自动安装 certbot(不支持的包管理器)"
+            echo "  ${C_DIM}手动: snap install core && snap install --classic certbot${C_END}"
+            TLS_MODE="skip"
+        fi
+    fi
+fi
+
+if [ "$TLS_MODE" = "certbot" ]; then
+    if [ -z "$DOMAIN" ] && [ "$INTERACTIVE" -ge 1 ]; then
+        ASK "  输入域名(需已解析到本机, 如 probe.example.com): "
+        DOMAIN="$REPLY"
+    fi
+    [ -z "$DOMAIN" ] && { warn "未输入域名, 跳过 TLS"; TLS_MODE="skip"; }
+fi
+
+if [ "$TLS_MODE" = "certbot" ]; then
+    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    DOMAIN_IP=$(getent hosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | head -1)
+    if [ -n "$DOMAIN_IP" ] && [ "$DOMAIN_IP" != "$LOCAL_IP" ]; then
+        warn "域名 $DOMAIN 解析到 $DOMAIN_IP, 与本机 $LOCAL_IP 不一致"
+        ASK "  仍要继续签发? [y/N]: "
+        case "${REPLY:-N}" in [yY]*) ;; *) TLS_MODE="skip";; esac
+    else
+        ok "DNS 解析正常"
+    fi
+fi
+
+if [ "$TLS_MODE" = "certbot" ]; then
+    step "签发证书(standalone, 需 80 端口空闲且已放行)"
+    if [ "$INTERACTIVE" -ge 1 ]; then
+        ASK "  证书到期提醒邮箱(可回车跳过): "
+        EMAIL="$REPLY"
+    fi
+    CERTBOT_ARGS="certonly --standalone -d $DOMAIN --agree-tos --keep-until-expiring"
+    if [ -n "$EMAIL" ]; then CERTBOT_ARGS="$CERTBOT_ARGS -m $EMAIL"; else CERTBOT_ARGS="$CERTBOT_ARGS --register-unsafely-without-email"; fi
+    if certbot $CERTBOT_ARGS; then
+        ok "证书已签发"
+    else
+        warn "签发失败(常见: 80 未放行/域名未解析)。可修复后重跑本脚本, 先跳过 TLS"
+        TLS_MODE="skip"
+    fi
+fi
+
+if [ "$TLS_MODE" = "certbot" ]; then
+    step "部署证书与续期钩子"
+    mkdir -p /var/lib/xprobe-server/certs
+    cp -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" /var/lib/xprobe-server/certs/
+    cp -f "/etc/letsencrypt/live/$DOMAIN/privkey.pem"  /var/lib/xprobe-server/certs/
+    chown -R xprobe:xprobe /var/lib/xprobe-server/certs
+    cat > /etc/letsencrypt/renewal-hooks/deploy/xprobe.sh << 'HOOK'
+#!/usr/bin/env bash
+cp -f "$RENEWED_DIR/fullchain.pem" /var/lib/xprobe-server/certs/
+cp -f "$RENEWED_DIR/privkey.pem"  /var/lib/xprobe-server/certs/
+chown -R xprobe:xprobe /var/lib/xprobe-server/certs
+HOOK
+    chmod +x /etc/letsencrypt/renewal-hooks/deploy/xprobe.sh
+    ok "deploy hook 已安装(续期自动同步)"
+    sed -i "s|^  cert: .*|  cert: /var/lib/xprobe-server/certs/fullchain.pem|; s|^  key: .*|  key: /var/lib/xprobe-server/certs/privkey.pem|" "$CONFIG_DIR/config.yml"
+    chown xprobe:xprobe "$CONFIG_DIR/config.yml"
+    systemctl restart xprobe-server
+    sleep 2
+    [ "$(systemctl is-active xprobe-server)" = "active" ] || die "配置证书后服务未运行: journalctl -u xprobe-server -n 30"
+    ok "HTTPS(域名证书)已生效"
+fi
+
+if [ "$TLS_MODE" = "skip" ] && [ "${SKIP_HINT:-0}" = "1" ]; then
+    echo "  ${C_DIM}已跳过 TLS 向导(非交互); 后续配置见 README「配置域名与 HTTPS 证书」${C_END}"
+fi
+
 FP=$(curl -fsSk --connect-timeout 5 "https://127.0.0.1/api/v1/server-cert" 2>/dev/null \
     | grep -o '"fingerprint"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || true)
 
 LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$LOCAL_IP" ] && LOCAL_IP="<服务器IP>"
+PANEL_HOST="${DOMAIN:-${LOCAL_IP}}"
+AGENT_CMD="curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server https://${PANEL_HOST} --code <注册码>${FP:+ --cert-fingerprint $FP}"
+
 echo
 printf '%s\n' "${C_STEP}──────────────────────────────────────────────${C_END}"
 echo "  XProbe Server ${VERSION} 安装完成"
 printf '%s\n' "${C_STEP}──────────────────────────────────────────────${C_END}"
-if [[ -n "$CERT_PATH" ]]; then
-    echo "  面板地址   : https://${DOMAIN:-${LOCAL_IP}}/  (正式证书, 浏览器无告警)"
+if [[ -n "$CERT_PATH" || "$TLS_MODE" = "certbot" ]]; then
+    echo "  面板地址   : https://${PANEL_HOST}/  (正式证书, 浏览器无告警)"
 else
-    echo "  面板地址   : https://${LOCAL_IP}/  (自签证书, 浏览器有告警; 配置域名证书见 README)"
+    echo "  面板地址   : https://${PANEL_HOST}/  (自签证书, 浏览器有告警; 可重跑脚本配置域名证书)"
 fi
 echo "  证书指纹   : ${FP:-<见下方命令>}"
 [ -z "$FP" ] && echo "               curl -k https://127.0.0.1/api/v1/server-cert"
 echo "  数据目录   : ${DATA_DIR}"
 echo "  配置文件   : ${CONFIG_DIR}/config.yml"
 echo "  查看日志   : journalctl -u xprobe-server -f"
-echo "  重启服务   : systemctl restart xprobe-server"
+echo
+echo "  Agent 安装 : 到被控服务器执行(注册码在面板「设置 → 注册码」生成):"
+echo "    ${AGENT_CMD}"
 echo
 echo "  下一步:"
 echo "    1. 云安全组/防火墙放行 443/tcp"
 echo "    2. 浏览器打开面板, 创建管理员账号(无默认密码)"
-echo "    3. 设置 → 注册码 → 生成, 到被控服务器安装 Agent"
+echo "    3. 生成注册码, 用上方命令安装 Agent"
 printf '%s\n' "${C_STEP}──────────────────────────────────────────────${C_END}"
