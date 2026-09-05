@@ -70,8 +70,10 @@
 
 body {
   background:
-    radial-gradient(1200px 600px at 70% -10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent),
+    radial-gradient(1400px 700px at 75% -12%, color-mix(in srgb, var(--primary) 16%, transparent), transparent),
+    radial-gradient(900px 500px at -10% 110%, color-mix(in srgb, var(--success) 8%, transparent), transparent),
     var(--background);
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   min-height: 100vh;
@@ -102,4 +104,23 @@ body {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* NodeGet 风格增强 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+.glass { position: relative; overflow: hidden; }
+.glass::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--foreground) 14%, transparent), transparent);
+  pointer-events: none;
+}
+.glass-hover:hover { border-color: color-mix(in srgb, var(--primary) 35%, var(--card-border)); }
+
+aside nav button { position: relative; }
+aside nav button.bg-primary::after {
+  content: ""; position: absolute; left: 0; top: 20%; bottom: 20%; width: 3px;
+  border-radius: 2px; background: currentColor;
 }

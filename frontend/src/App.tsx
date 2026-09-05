@@ -61,11 +61,14 @@ function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
         )}
       >
-        <div className={cn("flex items-center px-4 py-5", collapsed && "px-3")}>
-          <span className="text-lg font-bold tracking-tight">
-            <span style={{ color: "var(--primary)" }}>X</span>
-            {!collapsed && <span>Probe</span>}
-          </span>
+        <div className={cn("flex items-center gap-2 px-4 py-5", collapsed && "justify-center px-2")}>
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg text-sm font-black"
+            style={{ background: "var(--primary)", color: "var(--primary-fg)", boxShadow: "0 4px 12px color-mix(in srgb, var(--primary) 40%, transparent)" }}>X</span>
+          {!collapsed && (
+            <span className="text-base font-bold tracking-tight">
+              X<span style={{ color: "var(--primary)" }}>Probe</span>
+            </span>
+          )}
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-2">{MENU.map(item)}</nav>
         <div className={cn("flex flex-col gap-1 border-t border-card-border p-2", collapsed && "items-center")}>
