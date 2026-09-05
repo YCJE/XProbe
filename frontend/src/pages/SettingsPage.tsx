@@ -3,14 +3,12 @@ import { api, type CodesResp, type SessionsResp, type TagsResp } from "../lib/ap
 import { Button, GlassCard, Input } from "../components/ui";
 import { formatBytes } from "../lib/format";
 
-type Tab = "agents" | "codes" | "tags" | "sessions";
+type Tab = "tags" | "sessions";
 
 /** 设置页(设计文档 6.6): Agent/注册码/标签/会话管理。 */
 export function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("agents");
+  const [tab, setTab] = useState<Tab>("tags");
   const tabs: { key: Tab; label: string }[] = [
-    { key: "agents", label: "Agent 与 Token" },
-    { key: "codes", label: "注册码" },
     { key: "tags", label: "标签" },
     { key: "sessions", label: "登录会话" },
   ];
@@ -23,8 +21,6 @@ export function SettingsPage() {
           </Button>
         ))}
       </div>
-      {tab === "agents" && <AgentsPanel />}
-      {tab === "codes" && <CodesPanel />}
       {tab === "tags" && <TagsPanel />}
       {tab === "sessions" && <SessionsPanel />}
     </div>
@@ -35,106 +31,7 @@ interface AgentRow {
   id: number; hostname: string; online: boolean; agent_version: string; token_mask: string;
 }
 
-function AgentsPanel() {
-  const [rows, setRows] = useState<AgentRow[]>([]);
-  const [newToken, setNewToken] = useState<{ id: number; token: string } | null>(null);
 
-  const load = () => api.get<{ agents: AgentRow[] }>("/api/v1/agents/tokens").then((r) => setRows(r.agents));
-  useEffect(() => { load(); }, []);
-
-  const resetToken = async (id: number) => {
-    if (!confirm("重置后旧 Token 立即失效, 需更新 Agent 配置。继续?")) return;
-    const r = await api.post<{ token: string }>(`/api/v1/agents/${id}/reset-token`);
-    setNewToken({ id, token: r.token });
-    load();
-  };
-
-  return (
-    <GlassCard>
-      <table className="w-full text-sm">
-        <thead><tr className="border-b border-card-border text-left text-xs text-muted">
-          <th className="py-2">ID</th><th>主机名</th><th>在线</th><th>版本</th><th>Token</th><th />
-        </tr></thead>
-        <tbody>
-          {rows.map((a) => (
-            <tr key={a.id} className="border-b border-card-border/50 last:border-0">
-              <td className="py-2 tnum">{a.id}</td>
-              <td>{a.hostname}</td>
-              <td className="tnum">{a.online ? "●" : "○"}</td>
-              <td className="mono text-xs">{a.agent_version}</td>
-              <td className="mono text-xs">{a.token_mask}</td>
-              <td className="py-1 text-right">
-                <Button variant="ghost" onClick={() => resetToken(a.id)}>重置 Token</Button>
-              </td>
-            </tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-xs text-muted">暂无 Agent</td></tr>}
-        </tbody>
-      </table>
-      {newToken && (
-        <p className="mt-3 rounded-lg p-3 text-xs" style={{ background: "var(--card-border)" }}>
-          Agent #{newToken.id} 新 Token(仅显示一次, 立即保存):{" "}
-          <code className="mono break-all">{newToken.token}</code>
-        </p>
-      )}
-    </GlassCard>
-  );
-}
-
-function CodesPanel() {
-  const [codes, setCodes] = useState<CodesResp["codes"]>([]);
-  const [created, setCreated] = useState("");
-  const base = `${location.protocol}//${location.host}`;
-
-  const load = () => api.get<CodesResp>("/api/v1/agents/register-codes").then((r) => setCodes(r.codes));
-  useEffect(() => { load(); }, []);
-
-  const create = async () => {
-    const r = await api.post<{ code: string }>("/api/v1/agents/register-codes");
-    setCreated(r.code);
-    load();
-  };
-
-  const installCmd = (code: string) =>
-    `curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server ${base} --code ${code}`;
-
-  return (
-    <GlassCard>
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs text-muted">注册码一次性使用, 15 分钟有效, 最多 5 个未使用</p>
-        <Button onClick={create}>生成注册码</Button>
-      </div>
-      {created && (
-        <div className="mb-3 rounded-lg p-3" style={{ background: "var(--card-border)" }}>
-          <p className="text-xs text-muted">一键安装命令(仅显示一次):</p>
-          <code className="mono break-all text-xs">{installCmd(created)}</code>
-        </div>
-      )}
-      <table className="w-full text-sm">
-        <thead><tr className="border-b border-card-border text-left text-xs text-muted">
-          <th className="py-2">哈希</th><th>状态</th><th>过期时间</th><th />
-        </tr></thead>
-        <tbody>
-          {codes.map((c) => (
-            <tr key={c.hash} className="border-b border-card-border/50 last:border-0">
-              <td className="mono py-2 text-xs">{c.hash.slice(0, 12)}…</td>
-              <td className="text-xs">{c.used ? "已使用" : new Date(c.expires_at * 1000) > new Date() ? "有效" : "已过期"}</td>
-              <td className="text-xs tnum">{new Date(c.expires_at * 1000).toLocaleString()}</td>
-              <td className="text-right">
-                {!c.used && (
-                  <Button variant="ghost" onClick={async () => { await api.del(`/api/v1/agents/register-codes/${c.hash}`); load(); }}>
-                    删除
-                  </Button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {codes.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-xs text-muted">暂无注册码</td></tr>}
-        </tbody>
-      </table>
-    </GlassCard>
-  );
-}
 
 function TagsPanel() {
   const [tags, setTags] = useState<TagsResp["tags"]>([]);

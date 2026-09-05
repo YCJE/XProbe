@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import type { ServerInfo, Tag } from "../lib/types";
@@ -126,8 +127,8 @@ function NodeActions({ s, base, onChanged }: { s: ServerInfo; base: string; onCh
           await api.del(`/api/v1/servers/${s.id}`); onChanged();
         }
       }}>删除</Button>
-      {showCmd && <InstallCmdPanel s={s} base={base} onClose={() => setShowCmd(false)} />}
-      {editOpen && <EditNodeDialog s={s} onClose={() => { setEditOpen(false); onChanged(); }} />}
+      {showCmd && createPortal(<InstallCmdPanel s={s} base={base} onClose={() => setShowCmd(false)} />, document.body)}
+      {editOpen && createPortal(<EditNodeDialog s={s} onClose={() => { setEditOpen(false); onChanged(); }} />, document.body)}
     </span>
   );
 }
@@ -184,27 +185,33 @@ function EditNodeDialog({ s, onClose }: { s: ServerInfo; onClose: () => void }) 
 
 function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="glass w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-3 text-sm font-semibold">{title}</h3>
-        <div className="flex flex-col gap-3">{children}</div>
-      </div>
-    </div>
+    createPortal(
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+        <div className="glass w-full max-w-lg p-5" onClick={(e) => e.stopPropagation()}>
+          <h3 className="mb-3 text-sm font-semibold">{title}</h3>
+          <div className="flex flex-col gap-3">{children}</div>
+        </div>
+      </div>,
+      document.body,
+    )
   );
 }
 
 function CommandDialog({ cmd, onClose }: { cmd: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="glass w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-3 text-sm font-semibold">节点安装命令</h3>
-        <p className="mb-2 text-xs text-muted">在目标服务器以 root 执行(注册码 15 分钟有效, 首次连接即绑定本节点):</p>
-        <code className="mono block break-all rounded-lg p-3 text-xs" style={{ background: "var(--card-border)" }}>{cmd}</code>
-        <div className="mt-3 flex gap-2">
-          <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(cmd)}>复制命令</Button>
-          <Button onClick={onClose}>关闭</Button>
+    createPortal(
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+        <div className="glass w-full max-w-2xl p-5" onClick={(e) => e.stopPropagation()}>
+          <h3 className="mb-3 text-sm font-semibold">节点安装命令</h3>
+          <p className="mb-2 text-xs text-muted">在目标服务器以 root 执行(注册码 15 分钟有效, 首次连接即绑定本节点):</p>
+          <code className="mono block break-all rounded-lg p-3 text-xs" style={{ background: "var(--card-border)" }}>{cmd}</code>
+          <div className="mt-3 flex gap-2">
+            <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(cmd)}>复制命令</Button>
+            <Button onClick={onClose}>关闭</Button>
+          </div>
         </div>
-      </div>
-    </div>
+      </div>,
+      document.body,
+    )
   );
 }
