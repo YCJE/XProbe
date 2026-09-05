@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes, useNavigate } from "react-router-dom";
 import { api, ApiError, type ServersResp } from "./lib/api";
 import { Button } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
@@ -77,8 +77,8 @@ export function App() {
   );
 }
 
-/** 登录守卫: 访问受保护页前探活一次。 */
-function RequireAuth({ children }: { children?: React.ReactNode }) {
+/** 登录守卫: 访问受保护页前探活一次; 子路由经 <Outlet/> 渲染(v6 语义)。 */
+function RequireAuth() {
   const [state, setState] = useState<"check" | "ok">("check");
   useEffect(() => {
     api.get<ServersResp>("/api/v1/servers")
@@ -91,7 +91,7 @@ function RequireAuth({ children }: { children?: React.ReactNode }) {
   if (state === "check") {
     return <div className="flex h-screen items-center justify-center text-sm text-muted">加载中…</div>;
   }
-  return <>{children}</>;
+  return <Outlet />;
 }
 
 export default App;
