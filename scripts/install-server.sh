@@ -184,8 +184,11 @@ elif [ -e /dev/tty ]; then INTERACTIVE=2
 fi
 ASK() {
     REPLY=""
-    if [ "$INTERACTIVE" -ge 1 ]; then
-        read -r -p "$1" REPLY < /dev/tty 2>/dev/null || REPLY=""
+    if [ "$INTERACTIVE" = "1" ]; then
+        read -r -p "$1" REPLY || REPLY=""
+    elif [ "$INTERACTIVE" = "2" ] && [ -e /dev/tty ]; then
+        # curl|bash 时 stdin 是管道, 从 /dev/tty 读输入; stderr 指向 tty 让提示可见
+        read -r -p "$1" REPLY < /dev/tty 2>/dev/tty || REPLY=""
     fi
 }
 
@@ -200,10 +203,12 @@ elif [ "$INTERACTIVE" -ge 1 ]; then
     echo
     step "TLS 向导: 配置域名与 HTTPS 证书"
     echo "  ${C_DIM}配置后浏览器无证书告警, Agent 安装命令自动带上域名与新指纹。${C_END}"
-    ASK "  是否现在配置? [Y/n]: "
-    case "${REPLY:-Y}" in
-        [nN]*) TLS_MODE="skip";;
-        *)     TLS_MODE="certbot";;
+    echo "  1) 配置域名与 HTTPS 证书(推荐, 需要 80/443 端口已放行)"
+    echo "  2) 跳过(稍后可按 README 手动配置)"
+    ASK "  请选择 [1/2, 回车=1]: "
+    case "${REPLY:-1}" in
+        2) TLS_MODE="skip";;
+        *) TLS_MODE="certbot";;
     esac
 else
     SKIP_HINT=1
