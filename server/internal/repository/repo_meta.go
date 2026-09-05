@@ -106,14 +106,22 @@ func (r *AgentRepo) ResetFingerprint(ctx context.Context, id int64) error {
 }
 
 // UpdateBind 将预创建节点与 Agent 注册信息绑定(Komari 模式)。
+// 节点在注册码有效期内被删除时 UPDATE 影响 0 行——必须报错, 否则 Agent 会
+// 拿到一个数据库里不存在的 Token, 之后所有请求永远 401(真机排查发现)。
 func (r *AgentRepo) UpdateBind(ctx context.Context, id int64, a *model.Agent) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE agents SET
+	res, err := r.db.ExecContext(ctx, `UPDATE agents SET
 		token_hash = ?, hostname = ?, os = ?, arch = ?, agent_version = ?,
 		host_fingerprint = ?, ipv4 = ?, last_seen = ?, online = 1
 		WHERE id = ?`,
 		a.TokenHash, a.Hostname, a.OS, a.Arch, a.AgentVersion,
 		a.HostFingerprint, a.IPv4, a.LastSeen, id)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // RotateToken 吊销旧 Token 并写入新 Token 哈希(设计文档 7.5 v1.3)。
