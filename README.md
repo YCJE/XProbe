@@ -39,10 +39,32 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-se
 
 ### 2. 配置域名与 HTTPS 证书(推荐)
 
-默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。有域名时建议换成正式证书:
+默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。有域名时建议换成正式证书。
+
+#### 前置条件
+
+1. 域名的 A 记录已解析到本服务器(`dig +short probe.example.com` 应返回你的 IP)
+2. 云安全组/防火墙已放行 **80/tcp**(Let's Encrypt 验证走 80;XProbe 只用 443, 互不冲突)
+
+#### 安装 certbot(系统默认没有, 需先装)
 
 ```bash
-# 以 certbot 为例(standalone 模式占用 80 端口, 不影响运行中的 443):
+# Ubuntu / Debian
+apt update && apt install -y certbot
+
+# CentOS / AlmaLinux / Rocky
+dnf install -y epel-release && dnf install -y certbot
+
+# 或官方推荐的 snap 方式(版本最新)
+snap install core && snap refresh core && snap install --classic certbot
+
+certbot --version   # 验证安装
+```
+
+#### 签发证书
+
+```bash
+# standalone 模式会临时占用 80 端口完成验证(不影响运行中的 443):
 certbot certonly --standalone -d probe.example.com
 
 # 把证书放到服务可读位置并授权:
@@ -55,6 +77,10 @@ chown -R xprobe:xprobe /var/lib/xprobe-server/certs
 # 编辑 /etc/xprobe-server/config.yml 的 tls.cert / tls.key 指向上方两个文件
 systemctl restart xprobe-server
 ```
+
+- **续期**:apt 方式安装会自动注册 `certbot renew` 定时器;证书续期后 XProbe 热加载自动生效, 无需重启
+- **80 端口不方便开放?**:改用 DNS 验证(`certbot certonly --manual --preferred-challenges dns -d 域名`, 按提示加 TXT 记录), 或安装对应 DNS 插件实现全自动
+- **没有域名?**:继续用自签证书即可, Agent 安装命令带上 `--cert-fingerprint <指纹>`(安装摘要会打印)
 
 要点:
 - **证书热加载**:续期(certbot renew)后自动生效,无需重启服务
