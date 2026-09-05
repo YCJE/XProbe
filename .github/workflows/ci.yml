@@ -81,12 +81,13 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
+          LDFLAGS="-s -w -X github.com/YCJE/XProbe/internal/version.Version=${GITHUB_REF_NAME}"
           for A in amd64 arm64; do
             mkdir -p server/assets/agents/linux-$A
-            GOOS=linux GOARCH=$A go build -trimpath -o server/assets/agents/linux-$A/xprobe-agent ./agent/cmd/agent
+            GOOS=linux GOARCH=$A go build -trimpath -ldflags "$LDFLAGS" -o server/assets/agents/linux-$A/xprobe-agent ./agent/cmd/agent
           done
           mkdir -p server/assets/agents/linux-armv7
-          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o server/assets/agents/linux-armv7/xprobe-agent ./agent/cmd/agent
+          GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -ldflags "$LDFLAGS" -o server/assets/agents/linux-armv7/xprobe-agent ./agent/cmd/agent
       - name: 构建
         env:
           CGO_ENABLED: "0"

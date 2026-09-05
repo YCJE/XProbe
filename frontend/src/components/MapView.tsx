@@ -20,7 +20,7 @@ export function MapView({ servers }: { servers: ServerInfo[] }) {
   const chartRef = useRef<echarts.ECharts | null>(null);
   const [mapError, setMapError] = useState(false);
   const [mapReady, setMapReady] = useState(worldRegistered);
-  const [, force] = useState(0);
+  const [themeTick, force] = useState(0);
 
   useEffect(() => {
     if (worldRegistered) {
@@ -62,7 +62,7 @@ export function MapView({ servers }: { servers: ServerInfo[] }) {
       chart.dispose();
       chartRef.current = null;
     };
-  }, [mapReady, mapError, servers, nav]);
+  }, [mapReady, mapError, servers, nav, themeTick]);
 
   if (mapError) {
     return (

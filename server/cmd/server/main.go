@@ -46,7 +46,8 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		log.Printf("xprobe-server %s", version.Version)
+		// 输出到 stdout(升级脚本解析版本号用; log 会混入时间戳前缀到 stderr)
+		fmt.Println(version.Version)
 		return
 	}
 

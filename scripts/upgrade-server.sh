@@ -70,6 +70,7 @@ step "替换二进制并重启服务"
 systemctl stop xprobe-server
 cp "$BIN" "${BIN}.bak"   # 保留旧版用于回滚
 mv /tmp/xprobe-server.new "$BIN"
+chmod 755 "$BIN"
 systemctl start xprobe-server
 sleep 2
 [ "$(systemctl is-active xprobe-server)" = "active" ] || die "升级后服务未运行! 回滚: cp ${BIN}.bak $BIN && systemctl start xprobe-server"

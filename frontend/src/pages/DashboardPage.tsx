@@ -103,8 +103,8 @@ export function DashboardPage({ view: viewProp = "card" }: { view?: "card" | "ta
           <option value="expires">按到期</option>
         </Select>
         <div className="ml-auto flex gap-1">
-          <Button variant={viewProp === "card" ? "primary" : "ghost"} onClick={() => nav("/dashboard")}>卡片</Button>
-          <Button variant={viewProp === "table" ? "primary" : "ghost"} onClick={() => nav("/dashboard")}>表格</Button>
+          <Button variant={view === "card" ? "primary" : "ghost"} onClick={() => { nav("/dashboard"); set("view", "card"); }}>卡片</Button>
+          <Button variant={view === "table" ? "primary" : "ghost"} onClick={() => { nav("/dashboard"); set("view", "table"); }}>表格</Button>
           <Button variant={viewProp === "map" ? "primary" : "ghost"} onClick={() => nav("/dashboard/map")}>地图</Button>
           <Button variant="ghost" onClick={() => setLayoutOpen(!layoutOpen)}>布局</Button>
         </div>

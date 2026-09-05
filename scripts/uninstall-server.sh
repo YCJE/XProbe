@@ -19,6 +19,8 @@ else
 fi
 step()  { printf '%s\n' "${C_STEP}==> ${C_END}${*}"; }
 ok()    { printf '%s\n' "${C_OK}  ✔ ${C_END}${*}"; }
+die()   { printf '%s
+' "${C_ERR}  ✘ ${C_END}${*}" >&2; exit 1; }
 warn()  { printf '%s\n' "${C_WARN}  ⚠ ${C_END}${*}"; }
 
 BIN=/usr/local/bin/xprobe-server
@@ -32,8 +34,8 @@ if [ "$PURGE" = "1" ]; then
     if [ -t 0 ]; then
         read -r -p "确认继续? 输入 yes: " ANSWER
         [ "$ANSWER" = "yes" ] || { echo "已取消"; exit 0; }
-    else
-        echo "非交互环境且指定了 --purge, 视为确认"
+    elif [ "${XPROBE_PURGE:-}" != "yes" ]; then
+        die "非交互环境的 --purge 需显式确认: 加环境变量 XPROBE_PURGE=yes"
     fi
 fi
 

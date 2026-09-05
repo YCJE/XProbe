@@ -141,7 +141,7 @@ func NewRouter(d Deps, webFS fs.FS) *gin.Engine {
 					c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 					return
 				}
-				c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(xprobe.PlaceholderHTML))
+				serveFile(c, webFS, "index.html")
 				return
 			}
 			f.Close()

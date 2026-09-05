@@ -290,10 +290,10 @@ func (c *ServiceChecker) SeedDaily(ctx context.Context) {
 		if derr != nil || len(daily) == 0 {
 			continue
 		}
-		todayRow := daily[len(daily)-1] // ASC 末元素为今日
-		if todayRow.Date != today {
+		if len(daily) == 0 || daily[len(daily)-1].Date != today {
 			continue
 		}
+		todayRow := daily[len(daily)-1]
 		c.mu.Lock()
 		c.dayAcc[svc.ID] = &svcDayAcc{date: today, total: todayRow.Total, ok: todayRow.Ok}
 		c.mu.Unlock()

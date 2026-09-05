@@ -119,7 +119,7 @@ func (r *ServiceRepo) UpsertDaily(ctx context.Context, serviceID int64, d model.
 // ListDaily 近 N 天日汇总(旧→新)。
 func (r *ServiceRepo) ListDaily(ctx context.Context, serviceID int64, days int) ([]model.ServiceDaily, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT date, total, ok, up_ratio FROM service_daily
-		WHERE service_id = ? ORDER BY date DESC LIMIT ?`, serviceID, days)
+		WHERE service_id = ? ORDER BY date ASC LIMIT ?`, serviceID, days)
 	if err != nil {
 		return nil, err
 	}

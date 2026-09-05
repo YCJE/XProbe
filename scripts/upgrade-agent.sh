@@ -50,12 +50,19 @@ if curl -fsSL -o /tmp/xprobe-agent.new.sha256 "${URL}.sha256" 2>/dev/null; then
 else
     warn "服务器未提供 .sha256, 跳过校验"
 fi
+chmod +x /tmp/xprobe-agent.new
+TMPV=$(/tmp/xprobe-agent.new --version 2>/dev/null | tail -1 | awk '{print $NF}')
+if [ -n "$OLD_VERSION" ] && [ "$TMPV" = "$OLD_VERSION" ]; then
+    ok "已是目标版本 ${TMPV}, 无需升级"
+    rm -f /tmp/xprobe-agent.new
+    exit 0
+fi
 
 step "替换二进制并重启服务(配置/state.json 不动)"
 systemctl stop xprobe-agent
 cp "$BIN" "${BIN}.bak"
 mv /tmp/xprobe-agent.new "$BIN"
-chmod +x "$BIN"
+chmod 755 "$BIN"
 setcap cap_net_raw+ep "$BIN" 2>/dev/null || warn "setcap 失败, 将走 unprivileged ICMP/TCP"
 systemctl start xprobe-agent
 sleep 3

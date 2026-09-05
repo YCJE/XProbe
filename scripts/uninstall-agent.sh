@@ -39,6 +39,13 @@ sysctl --system >/dev/null 2>&1 || true
 ok "已移除"
 
 if [ "$PURGE" = "1" ]; then
+    warn "PURGE 模式: 配置/状态/账号将全部删除!"
+    if [ -t 0 ]; then
+        read -r -p "确认继续? 输入 yes: " ANSWER
+        [ "$ANSWER" = "yes" ] || { echo "已取消"; exit 0; }
+    elif [ "${XPROBE_PURGE:-}" != "yes" ]; then
+        echo "非交互环境的 --purge 需显式确认: XPROBE_PURGE=yes"; exit 1
+    fi
     step "PURGE: 删除配置与状态"
     rm -rf /etc/xprobe-agent /var/lib/xprobe-agent
     id probe &>/dev/null && userdel probe 2>/dev/null && ok "已删除 probe 用户" || true
