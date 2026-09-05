@@ -13,6 +13,9 @@ BASE_URL="https://github.com/YCJE/XProbe/releases"
 DATA_DIR="/var/lib/xprobe-server"
 CONFIG_DIR="/etc/xprobe-server"
 BIN=/usr/local/bin/xprobe-server
+CERT_PATH=""   # 可选: 已有证书 fullchain.pem(如 certbot 签发)
+KEY_PATH=""    # 可选: 对应 privkey.pem
+DOMAIN=""      # 可选: 仅用于摘要展示
 
 # ---------- 输出工具(彩色, 非终端时自动退化为纯文本) ----------
 if [ -t 2 ]; then
@@ -34,7 +37,18 @@ case $ARCH in
     aarch64) ARCH="arm64";;
     *) die "不支持的架构: $ARCH(目前支持 x86_64 / aarch64)";;
 esac
-ok "架构 linux/${ARCH}"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --cert) CERT_PATH="$2"; shift 2;;
+        --key) KEY_PATH="$2"; shift 2;;
+        --domain) DOMAIN="$2"; shift 2;;
+        *) shift;;
+    esac
+done
+if [[ -n "$CERT_PATH" && -n "$KEY_PATH" ]]; then
+    [[ -f "$CERT_PATH" && -f "$KEY_PATH" ]] || die "证书文件不存在: $CERT_PATH / $KEY_PATH"
+fi
+ok "架构 linux/${ARCH}${DOMAIN:+ · 域名 $DOMAIN}"
 
 # ---------- 1. 版本探测 ----------
 step "探测最新版本"
@@ -78,13 +92,19 @@ ok "安装完成"
 # ---------- 4. 配置 ----------
 step "写入配置(已存在则保留原配置)"
 mkdir -p "$DATA_DIR" "$CONFIG_DIR"
+TLS_CERT_LINE='  cert: ""                # 留空: 首次启动自动生成自签证书(建议后续替换为正式证书)'
+TLS_KEY_LINE='  key: ""'
+if [[ -n "$CERT_PATH" && -n "$KEY_PATH" ]]; then
+    TLS_CERT_LINE="  cert: \"${CERT_PATH}\"    # 已配置外部证书(热加载: 续期后自动生效, 无需重启)"
+    TLS_KEY_LINE="  key: \"${KEY_PATH}\""
+fi
 if [[ ! -f "$CONFIG_DIR/config.yml" ]]; then
     cat > "$CONFIG_DIR/config.yml" << EOF
 listen: ":443"            # 监听地址; 443 被占用可改为其他端口
 data_dir: "${DATA_DIR}"   # SQLite 数据目录
 tls:
-  cert: ""                # 留空: 首次启动自动生成自签证书(建议后续替换为正式证书)
-  key: ""
+${TLS_CERT_LINE}
+${TLS_KEY_LINE}
 auth:
   jwt_secret: ""          # 留空: 首次启动生成并写回; Docker 建议用 PROBE_JWT_SECRET 注入
   cookie_secure: true
@@ -100,6 +120,10 @@ step "创建系统服务"
 id xprobe &>/dev/null || useradd -r -s /usr/sbin/nologin xprobe
 chown -R xprobe:xprobe "$DATA_DIR"
 chown xprobe:xprobe "$CONFIG_DIR/config.yml"
+if [[ -n "$CERT_PATH" ]]; then
+    # 服务用户必须能读证书(热加载每次握手都会读)
+    chown xprobe:xprobe "$CERT_PATH" "$KEY_PATH"
+fi
 cat > /etc/systemd/system/xprobe-server.service << EOF
 [Unit]
 Description=XProbe Server
@@ -157,7 +181,11 @@ echo
 printf '%s\n' "${C_STEP}──────────────────────────────────────────────${C_END}"
 echo "  XProbe Server ${VERSION} 安装完成"
 printf '%s\n' "${C_STEP}──────────────────────────────────────────────${C_END}"
-echo "  面板地址   : https://${LOCAL_IP}/  (浏览器会提示自签证书, 属正常)"
+if [[ -n "$CERT_PATH" ]]; then
+    echo "  面板地址   : https://${DOMAIN:-${LOCAL_IP}}/  (正式证书, 浏览器无告警)"
+else
+    echo "  面板地址   : https://${LOCAL_IP}/  (自签证书, 浏览器有告警; 配置域名证书见 README)"
+fi
 echo "  证书指纹   : ${FP:-<见下方命令>}"
 [ -z "$FP" ] && echo "               curl -k https://127.0.0.1/api/v1/server-cert"
 echo "  数据目录   : ${DATA_DIR}"

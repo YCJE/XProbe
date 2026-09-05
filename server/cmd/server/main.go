@@ -97,6 +97,8 @@ func main() {
 		log.Fatalf("tls bootstrap: %v", err)
 	}
 	log.Printf("tls fingerprint (sha256): %s", certFingerprint)
+	// 证书热加载: TLS 握手经 reloader 取证书(按 mtime 缓存), certbot 续期后自动生效无需重启
+	reloader := pkg.NewCertReloader(certPath(cfg), keyPath(cfg))
 
 	// JWT 密钥: env > 配置文件 > 首次生成持久化(设计文档 8.2)
 	secret, err := jwtSecret(cfg)
@@ -142,6 +144,7 @@ func main() {
 		DownloadLimiter: downloadLimiter,
 		GlobalLimiter:   globalLimiter,
 		CertFingerprint: certFingerprint,
+		CertReloader:    reloader,
 		WSCompression:   *cfg.Monitor.WSCompression,
 	}, mustWebFS())
 
@@ -178,12 +181,15 @@ func main() {
 		Addr:              cfg.Listen,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12}, // S2: 拒绝老旧协议
+		TLSConfig: &tls.Config{
+			MinVersion:     tls.VersionTLS12, // S2: 拒绝老旧协议
+			GetCertificate: reloader.GetCertificate,
+		},
 	}
 	errCh := make(chan error, 1)
 	go func() {
 		log.Printf("xprobe-server %s listening on %s (https/wss)", version.Version, cfg.Listen)
-		errCh <- srv.ListenAndServeTLS(certPath(cfg), keyPath(cfg))
+		errCh <- srv.ListenAndServeTLS("", "") // 证书由 GetCertificate 提供
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

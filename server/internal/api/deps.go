@@ -33,6 +33,7 @@ type Deps struct {
 	LoginLimiter    *pkg.Limiter // 5 次/分钟/IP
 	GlobalLimiter   *pkg.Limiter // 120 次/分钟/IP
 	CertFingerprint string
+	CertReloader    *pkg.CertReloader
 	WSCompression   bool
 	Now             func() time.Time
 }

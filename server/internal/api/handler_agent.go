@@ -45,8 +45,15 @@ func (d Deps) HandleRegister(c *gin.Context) {
 }
 
 // HandleServerCert GET /api/v1/server-cert: 公开证书指纹, 供安装脚本写入 Agent Pinning 配置。
+// 有 CertReloader 时每次现读(续期后指纹实时), 否则用启动时快照。
 func (d Deps) HandleServerCert(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"algorithm": "sha256", "fingerprint": d.CertFingerprint})
+	fp := d.CertFingerprint
+	if d.CertReloader != nil {
+		if live, err := d.CertReloader.Fingerprint(); err == nil {
+			fp = live
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"algorithm": "sha256", "fingerprint": fp})
 }
 
 // HandleAgentConfig GET /api/v1/agent/config: 只读探测目标配置(Agent 定时拉取, 设计文档 4.7)。

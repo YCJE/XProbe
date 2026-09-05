@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -13,6 +14,8 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
+	"sync"
 	"time"
 )
 
@@ -71,4 +74,45 @@ func LoadCertFingerprint(certPEM []byte) (string, error) {
 		return "", errors.New("tls: no CERTIFICATE block in pem")
 	}
 	return CertFingerprint(block.Bytes), nil
+}
+
+// CertReloader 按文件 mtime 热加载证书: certbot 续期后自动生效, 无需重启服务。
+type CertReloader struct {
+	mu       sync.Mutex
+	certPath string
+	keyPath  string
+	cert     *tls.Certificate
+	modTime  time.Time
+}
+
+func NewCertReloader(certPath, keyPath string) *CertReloader {
+	return &CertReloader{certPath: certPath, keyPath: keyPath}
+}
+
+// GetCertificate 供 tls.Config 使用; 文件 mtime 变化时重新加载。
+func (r *CertReloader) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ci, err := os.Stat(r.certPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat cert: %w", err)
+	}
+	if r.cert == nil || ci.ModTime() != r.modTime {
+		c, err := tls.LoadX509KeyPair(r.certPath, r.keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("load keypair: %w", err)
+		}
+		r.cert = &c
+		r.modTime = ci.ModTime()
+	}
+	return r.cert, nil
+}
+
+// Fingerprint 返回当前证书指纹(每次现读, 保证续期后实时)。
+func (r *CertReloader) Fingerprint() (string, error) {
+	cert, err := r.GetCertificate(nil)
+	if err != nil {
+		return "", err
+	}
+	return CertFingerprint(cert.Leaf.Raw), nil
 }

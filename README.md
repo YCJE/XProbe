@@ -37,11 +37,36 @@ PROBE_JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
 curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-server.sh | bash
 ```
 
-### 2. 初始化与添加服务器
+### 2. 配置域名与 HTTPS 证书(推荐)
 
-浏览器打开 `https://<host>/`,创建管理员账号(无默认密码);在「设置 → 注册码」生成一次性注册码,复制一键安装命令。
+默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。有域名时建议换成正式证书:
 
-### 3. 被控服务器安装 Agent
+```bash
+# 以 certbot 为例(standalone 模式占用 80 端口, 不影响运行中的 443):
+certbot certonly --standalone -d probe.example.com
+
+# 把证书放到服务可读位置并授权:
+mkdir -p /var/lib/xprobe-server/certs
+cp /etc/letsencrypt/live/probe.example.com/fullchain.pem /var/lib/xprobe-server/certs/
+cp /etc/letsencrypt/live/probe.example.com/privkey.pem  /var/lib/xprobe-server/certs/
+chown -R xprobe:xprobe /var/lib/xprobe-server/certs
+
+# 写入配置(或全新安装时直接加参数: install-server.sh --cert <fullchain> --key <privkey> --domain probe.example.com):
+# 编辑 /etc/xprobe-server/config.yml 的 tls.cert / tls.key 指向上方两个文件
+systemctl restart xprobe-server
+```
+
+要点:
+- **证书热加载**:续期(certbot renew)后自动生效,无需重启服务
+- **指纹实时**:更换证书后 `curl -s https://probe.example.com/api/v1/server-cert` 返回新指纹,Agent 安装命令自动带上新指纹
+- **已装 Agent 的轮换**:换证书后旧 Agent 会因指纹不匹配拒绝连接——把新旧两个指纹都写进 Agent 的 `server_cert_fingerprints` 列表(支持双指纹平滑轮换),或重装 Agent
+- **反向代理场景**:nginx 终止 TLS 时,把 `config.yml` 的 `listen` 改为 `127.0.0.1:8443`,nginx `proxy_pass https://127.0.0.1:8443`(需 `proxy_set_header` 与 WebSocket 升级头);Server 端自签证书即可
+
+### 3. 初始化与添加服务器
+
+浏览器打开 `https://<域名或IP>/`,创建管理员账号(无默认密码);在「设置 → 注册码」生成一次性注册码,复制一键安装命令。
+
+### 4. 被控服务器安装 Agent
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server https://your-server.com --code ABC123XY
@@ -52,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-ag
 
 > 注:源码 checkout 直接编译的 Server 不含前端面板(访问显示占位页),官方 Release/Docker 产物已内嵌;本地开发请先 `make build-frontend`。
 
-### 4. 升级 / 卸载
+### 5. 升级 / 卸载
 
 ```bash
 # Server 升级(自动备份数据库; 旧二进制保留 .bak 可回滚)
@@ -69,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-
 
 忘记管理员密码:`xprobe-server reset-password --username admin`(重置后吊销全部会话)。
 
-### 5. 数据备份
+### 6. 数据备份
 
 ```bash
 scripts/backup.sh /var/lib/xprobe-server   # sqlite3 .backup 在线一致性快照(WAL 下禁止直接 cp)
