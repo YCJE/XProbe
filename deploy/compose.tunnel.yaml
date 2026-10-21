@@ -1,0 +1,23 @@
+# Cloudflare Tunnel deployment. The two containers share the probe's network
+# namespace, so cloudflared reaches 127.0.0.1:8080 without exposing a port.
+services:
+  probe:
+    build: ..
+    container_name: xprobe
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./data:/var/lib/probe
+      - ./config.tunnel.yaml:/etc/probe/config.yaml:ro
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: xprobe-tunnel
+    restart: unless-stopped
+    depends_on:
+      - probe
+    network_mode: "service:probe"
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}

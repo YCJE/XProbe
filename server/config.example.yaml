@@ -1,0 +1,45 @@
+# Copy to config.yaml (ignored by git). Local loopback example:
+listen: "127.0.0.1:8080"
+public_url: "http://127.0.0.1:8080"
+data_dir: "./data"
+
+tls:
+  mode: "off"          # off is only allowed on loopback; use files for a public listener
+  cert: ""
+  key: ""
+
+proxy:
+  mode: "none"         # none | cloudflare_tunnel | cloudflare_proxy
+  trusted_cidrs: []    # required for cloudflare_proxy
+
+auth:
+  session_idle: "2h"
+  session_max: "168h"
+  login_rate_limit: 5
+
+monitor:
+  report_interval: 3
+  heartbeat_timeout: 90
+  ring_buffer_size: 3600
+  aggregation_interval: 300
+
+storage:
+  data_retention_days: 90
+  sqlite_busy_timeout_ms: 5000
+
+log:
+  level: "info"
+
+# Cloudflare Tunnel production example:
+# listen: "127.0.0.1:8080"
+# public_url: "https://monitor.example.com"
+# tls: { mode: "off" }
+# proxy: { mode: "cloudflare_tunnel" }
+#
+# Orange-cloud + Origin Certificate production example:
+# listen: "0.0.0.0:443"
+# public_url: "https://monitor.example.com"
+# tls: { mode: "files", cert: "/etc/probe/cert.pem", key: "/etc/probe/key.pem" }
+# proxy:
+#   mode: "cloudflare_proxy"
+#   trusted_cidrs: ["173.245.48.0/20", "103.21.244.0/22"]  # keep this list current

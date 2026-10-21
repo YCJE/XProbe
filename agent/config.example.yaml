@@ -1,0 +1,21 @@
+# Copy to /etc/probe-agent/config.yml (0600, owner probe).
+server: "https://monitor.example.com"
+
+# First run only: the installer writes the one-time code here. After a
+# successful registration the agent replaces it with the issued token.
+register_code: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX"
+token: ""
+
+# Generated once by the installer and kept stable across upgrades.
+install_salt: "replace-with-64-hex-characters"
+
+# none for public CA / Cloudflare; spki_sha256 only for a direct self-signed
+# server, with the fingerprint passed out-of-band by the one-time command.
+tls_pin_mode: "none"
+server_cert_fingerprints: []
+tls_insecure: false
+
+state_file: "/var/lib/probe-agent/state.json"
+report_interval: 3
+config_sync_interval: 3600
+ping_method: "auto"

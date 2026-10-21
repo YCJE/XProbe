@@ -1,51 +1,45 @@
-// Package repository 实现 Server 数据层: SQLite 连接管理、内存环形缓冲、各实体 CRUD。
 package repository
 
 import (
 	"context"
 	"database/sql"
-	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
 
-	_ "modernc.org/sqlite" // 纯 Go SQLite 驱动, 无 cgo, 保障单命令交叉编译(设计文档 3.2)
+	_ "modernc.org/sqlite"
 )
 
-//go:embed schema.sql
-var schemaSQL string
+// Open opens the SQLite database with WAL mode, busy timeout, foreign keys
+// and NORMAL synchronous mode enabled (design doc §8.2). modernc.org/sqlite is
+// used so the server cross-compiles without cgo.
+func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
+	return OpenWithBusyTimeout(ctx, dbPath, 5000)
+}
 
-// Open 打开 SQLite 并应用 PRAGMA(设计文档 8.2: WAL + busy_timeout)。
-// MaxOpenConns=1: 单连接规避 SQLITE_BUSY——写入压力已被环形缓冲+聚合吸收,
-// 本库只承载低频聚合/告警/元数据写与少量读。
-func Open(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)", path)
+// OpenWithBusyTimeout honors storage.sqlite_busy_timeout_ms while keeping the
+// test/helper default at five seconds.
+func OpenWithBusyTimeout(ctx context.Context, dbPath string, busyTimeoutMS int) (*sql.DB, error) {
+	if busyTimeoutMS <= 0 {
+		busyTimeoutMS = 5000
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	dsn := "file:" + dbPath +
+		fmt.Sprintf("?_pragma=busy_timeout(%d)", busyTimeoutMS) +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)" +
+		"&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	if err := db.Ping(); err != nil {
-		db.Close()
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(8)
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 	return db, nil
-}
-
-// Migrate 创建全部表与索引(IF NOT EXISTS, 幂等); 随后对旧库追加增量列(ALTER 失败视为已存在)。
-func Migrate(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("migrate: %w", err)
-	}
-	for _, alt := range incrementalALTERs {
-		_, _ = db.ExecContext(ctx, alt) // duplicate column → 忽略
-	}
-	return nil
-}
-
-// incrementalALTERs 旧库升级(v1.4 地图坐标列)。
-var incrementalALTERs = []string{
-	"ALTER TABLE agents ADD COLUMN geo_lat REAL",
-	"ALTER TABLE agents ADD COLUMN geo_lon REAL",
-	"ALTER TABLE agents ADD COLUMN notes TEXT",
-	"ALTER TABLE register_codes ADD COLUMN bind_agent_id INTEGER",
 }

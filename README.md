@@ -1,164 +1,128 @@
 # XProbe
 
-安全优先的纯只读服务器探针(监控)系统。从架构上杜绝 RCE 攻击面(Server→Agent 无任何控制通道),功能对标 Nezha/Komari,视觉对标 NodeGet。
+一个安全优先的**只读**服务器探针。Agent 只采集和上报，主控不提供 WebSSH、文件管理、远程命令或定时任务。目标是避免把监控面板变成服务器管理入口。
 
-## 核心特性
+## 特性
 
-- **纯只读架构**:WebSocket 协议中 Server→Agent 方向仅有 1 种心跳确认帧,不存在任何命令/配置下发帧(S1/S4,CI `audit-noexec` 自动验证 Agent 二进制零 `os/exec`)
-- **强制 TLS + 证书 Pinning**:Agent 拒绝明文连接,支持自签/私有 CA 场景的指纹校验与双指纹平滑轮换
-- **非 root 运行**:systemd 加固 + setcap 最小能力,ICMP 不可用时自动降级 unprivileged ICMP → TCP Ping
-- **凭证哈希存储**:Agent Token / 注册码 / 登录会话在数据库仅存 SHA256 哈希
-- **SSRF 防护**:Webhook/Telegram/SMTP 通知统一走内网过滤 + DNS 预解析 + 重定向检测 + 响应体限读
-- **网络探测**:ICMP 10 包采样,报告延迟/最小/最大/抖动/丢包完整统计;IPv4/IPv6 双栈
-- **NodeGet 风格仪表盘**:玻璃拟态卡片、SVG 圆环指标、延迟小格子图、卡片/表格/地图三视图(轻量地图:国家质心 + 手动经纬度,免 MaxMind)、深浅双主题(WCAG AA 对比度实测)、布局自定义(密度/显示项)
-- **服务监控**:Server 主动对 HTTP/TCP/ICMP 端点拨测,45 天在线率日格 + 最近 64 次结果条 + DOWN/UP 转移通知,公开页集成(与 Agent 通道无关,不违反 S1)
-- **报表**:近 12 个月流量堆叠图、月成本按币种合计与手动汇率折算 CNY、30 天续费提醒
-- **告警 + 通知**:阈值状态机(防抖/静默/恢复通知),含月流量配额与 VPS 到期提醒;Webhook/Telegram/SMTP
-- **公开分享页**:`/s/:share_id` 免登录状态页,白名单字段(无 IP/Token/配置)
-- **单二进制部署**:前端 embed + Agent 二进制内嵌分发,一键安装完全自包含
+- 服务器状态：CPU、内存、磁盘、网络速度、月流量、负载、运行时间、进程/连接数
+- 延迟探测：ICMP（优先无特权）、TCP、HTTP HEAD；延迟格子与历史曲线
+- 实时面板：React + 自定义 CSS/SVG，卡片/表格视图，服务器详情
+- 7 套内置 CSS 主题：新版「任务控制 / 纸面编辑 / 石墨琥珀」+ 经典「玻璃拟态 / 经典实底 / 极简描边 / 深色高对比」，均支持明/暗/跟随系统
+- 告警：CPU/内存/磁盘/离线规则，Webhook / Telegram / SMTP，SSRF 过滤
+- 安全：Agent Token/注册码/会话 Token 全部哈希存储；Argon2id；TOTP；审计日志
+- 部署：单二进制、嵌入式前端、Docker、systemd；Cloudflare Tunnel / 橙云入口
+- 公开状态页：随机分享 ID，白名单字段，不展示 IP/Token/配置
 
-## 安全原则
+## 快速开始（本机）
 
-S1 纯只读 · S2 强制 TLS · S3 非 root · S4 无远程执行 · S5 单管理员强认证 · S6 SSRF 防护 · S7 最小权限采集 · S8 配置权限 600 · S9 凭证哈希存储
-
-## 技术栈
-
-Go 1.26 · Gin · gorilla/websocket · SQLite (WAL, 纯 Go 驱动) · pro-bing · React 18 + TypeScript · Vite · Tailwind CSS v4 · Zustand · ECharts
-
-## 快速开始
-
-### 1. 启动 Server
+要求：Go 1.26.9（go.mod 中的 toolchain 会自动下载补丁版）、Node.js 24。
 
 ```bash
-# 方式 A:Docker(推荐)
-PROBE_JWT_SECRET=$(openssl rand -hex 32) docker compose up -d
+# Linux / macOS / Git Bash（有 make 时）
+make build
+# 或者不依赖 make：
+./scripts/build.sh
+# Windows PowerShell：
+# .\scripts\build.ps1
 
-# 方式 B:一键脚本(GitHub Release)
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-server.sh | bash
+./bin/probe-server
 ```
 
-### 2. 配置域名与 HTTPS 证书(推荐)
+默认监听 `127.0.0.1:8080`，数据在 `./data`。首次启动会在日志中打印 setup token，同时写入 `data/setup_token`（0600）。打开 `http://127.0.0.1:8080/setup` 完成初始化，然后用管理员账号登录。
 
-默认生成自签证书(浏览器有告警, Agent 用指纹 Pinning 不受影响)。
+> `go build` 需要先构建前端，因为前端产物通过 `go:embed` 编入二进制。使用 `make build` 或先执行 `make web`。
 
-**方式 A(推荐):一键安装脚本已内置 TLS 向导**——安装完成的最后一步会询问「是否现在配置域名与 HTTPS 证书?」:选择 Y 则自动安装 certbot、引导输入域名与邮箱、签发证书、配置续期钩子并重启,全程无需手动拷贝编辑;非交互环境可用参数直达:`install-server.sh --domain probe.example.com --email you@mail.com`,或 `--skip-tls` 跳过。
+## 添加节点
 
-**方式 B(手动)**:按以下步骤操作。
-
-#### 前置条件
-
-1. 域名的 A 记录已解析到本服务器(`dig +short probe.example.com` 应返回你的 IP)
-2. 云安全组/防火墙已放行 **80/tcp**(Let's Encrypt 验证走 80;XProbe 只用 443, 互不冲突)
-
-#### 安装 certbot(系统默认没有, 需先装)
+1. 登录面板，点击“添加节点”，生成一次性注册码。
+2. 把对应架构的 Agent 二进制放到 `data/agent-dist/{amd64,arm64}/`：
+   - `probe-agent`
+   - `probe-agent.sha256`
+   - `probe-agent.sig`（可选，Ed25519 签名）
+3. 在目标 Linux 机器上运行：
 
 ```bash
-# Ubuntu / Debian
-apt update && apt install -y certbot
-
-# CentOS / AlmaLinux / Rocky
-dnf install -y epel-release && dnf install -y certbot
-
-# 或官方推荐的 snap 方式(版本最新)
-snap install core && snap refresh core && snap install --classic certbot
-
-certbot --version   # 验证安装
+curl -fsSL https://monitor.example.com/install-agent.sh | sudo sh -s -- \
+  --server https://monitor.example.com \
+  --code XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX
 ```
 
-#### 签发证书
+安装脚本会创建 `probe` 用户、安装 systemd 单元、设置非特权 ICMP、启动 Agent。Agent 首次注册后会把 Token 写回 `/etc/probe-agent/config.yml`（0600），并删除注册码。
+
+如果暂时没有 server 托管的 Agent 包，也可以手动复制二进制并写配置，格式见 `agent/config.example.yaml`。
+
+## 配置
+
+服务端示例见 `server/config.example.yaml`，完整字段说明在设计文档 §8.2。
+
+常用安全基线：
+
+- 默认只监听回环；公网部署必须 `tls.mode=files`，或使用 Cloudflare Tunnel。
+- `tls.mode=off` 只允许回环监听；Cloudflare Tunnel 模式下 Agent 仍连接 `wss://` 公网域名。
+- `proxy.mode=cloudflare_tunnel` 只信任回环传来的 `CF-Connecting-IP` / `CF-Visitor`。
+- 不要把 `data/`、证书、`config.yaml` 提交到仓库；`.gitignore` 已覆盖常见文件。
+
+## Cloudflare
+
+### Tunnel（推荐）
 
 ```bash
-# standalone 模式会临时占用 80 端口完成验证(不影响运行中的 443):
-certbot certonly --standalone -d probe.example.com
-
-# 把证书放到服务可读位置并授权:
-mkdir -p /var/lib/xprobe-server/certs
-cp /etc/letsencrypt/live/probe.example.com/fullchain.pem /var/lib/xprobe-server/certs/
-cp /etc/letsencrypt/live/probe.example.com/privkey.pem  /var/lib/xprobe-server/certs/
-chown -R xprobe:xprobe /var/lib/xprobe-server/certs
-
-# 写入配置后重启
-systemctl restart xprobe-server
+cd deploy
+# 编辑 config.tunnel.yaml 的 public_url
+CLOUDFLARE_TUNNEL_TOKEN=... docker compose -f compose.tunnel.yaml up -d --build
 ```
 
-> 手动方式只有一个长期注意点:证书拷贝是一次性的,依赖第 3 步那样的续期钩子(或定期 cron 拷贝)保持更新;向导方式(方式 A)已自动装好钩子。
+`cloudflared` 与 probe 共享网络命名空间，直接访问 `127.0.0.1:8080`，不需要开放公网端口。管理端可以再挂 Cloudflare Access；Agent 的 `/api/v1/agent/*` 和 `/download/*`、`/install-agent.sh` 需要 bypass。
 
-- **续期**:apt 方式安装会自动注册 `certbot renew` 定时器;证书续期后 XProbe 热加载自动生效, 无需重启
-- **80 端口不方便开放?**:改用 DNS 验证(`certbot certonly --manual --preferred-challenges dns -d 域名`, 按提示加 TXT 记录), 或安装对应 DNS 插件实现全自动
-- **没有域名?**:继续用自签证书即可, Agent 安装命令带上 `--cert-fingerprint <指纹>`(安装摘要会打印)
-
-要点:
-- **证书热加载**:续期(certbot renew)后自动生效,无需重启服务
-- **指纹实时**:更换证书后 `curl -s https://probe.example.com/api/v1/server-cert` 返回新指纹,Agent 安装命令自动带上新指纹
-- **已装 Agent 的轮换**:换证书后旧 Agent 会因指纹不匹配拒绝连接——把新旧两个指纹都写进 Agent 的 `server_cert_fingerprints` 列表(支持双指纹平滑轮换),或重装 Agent
-- **反向代理场景**:nginx 终止 TLS 时,把 `config.yml` 的 `listen` 改为 `127.0.0.1:8443`,nginx `proxy_pass https://127.0.0.1:8443`(需 `proxy_set_header` 与 WebSocket 升级头);Server 端自签证书即可
-
-### 3. 初始化与添加服务器
-
-浏览器打开 `https://<域名或IP>/`,创建管理员账号(无默认密码);在「设置 → 注册码」生成一次性注册码,复制一键安装命令。
-
-### 4. 被控服务器安装 Agent
+容器以 UID `10001` 运行，绑定挂载前先准备数据目录：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/install-agent.sh | bash -s -- --server https://your-server.com --code ABC123XY
+mkdir -p data && sudo chown -R 10001:10001 data
 ```
 
-安装脚本自动:校验 SHA256 → 创建非特权用户 → 生成 install_salt → 获取证书指纹(Pinning)→ 解锁 unprivileged ICMP → setcap → systemd 服务。
-> 也可在被控服务器放一份 `scripts/install-agent.sh` 后从 `https://your-server.com/install.sh` 提供(脚本与二进制同源校验)。
+### 橙云 + Origin Certificate
 
-> 注:源码 checkout 直接编译的 Server 不含前端面板(访问显示占位页),官方 Release/Docker 产物已内嵌;本地开发请先 `make build-frontend`。
+使用 `deploy/compose.tls.yaml`，源站提供 443/8443 HTTPS，Cloudflare SSL 设为 Full (strict)，并开启 Authenticated Origin Pulls、只允许 Cloudflare IP 访问源站。`proxy.trusted_cidrs` 填入 Cloudflare IP 段。证书和私钥必须对容器 UID `10001` 可读（例如 `chown 10001:10001 certs/* && chmod 0600 certs/key.pem`）。
 
-### 5. 升级 / 卸载
+不支持把 Go 服务端直接跑在 Workers 上；Workers 版本需要独立的 TypeScript + D1/Durable Objects 实现。
+
+## 发布与签名
 
 ```bash
-# Server 升级(自动备份数据库; 旧二进制保留 .bak 可回滚)
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/upgrade-server.sh | bash
-
-# Agent 升级(配置/install_salt 不动, 主机指纹不变)
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/upgrade-agent.sh | bash -s -- --server https://your-server.com
-
-# 卸载(默认保留数据, 重装自动接回; 加 --purge 彻底清除)
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-server.sh | bash
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-agent.sh | bash
-curl -fsSL https://raw.githubusercontent.com/YCJE/XProbe/main/scripts/uninstall-agent.sh | bash -s -- --purge
+# 离线保存私钥；只在发布机运行
+PROBE_RELEASE_KEY=/secure/probe-release.pem ./deploy/release-sign.sh \
+  data/agent-dist/amd64/probe-agent \
+  data/agent-dist/arm64/probe-agent
 ```
 
-忘记管理员密码:`xprobe-server reset-password --username admin`(重置后吊销全部会话)。
+安装脚本会用 `PROBE_RELEASE_PUBKEY` 指定的公钥验签（需要 `openssl`）；未提供公钥时只校验 SHA-256 并给出警告。
 
-### 6. 数据备份
+## 安全边界
 
-```bash
-scripts/backup.sh /var/lib/xprobe-server   # sqlite3 .backup 在线一致性快照(WAL 下禁止直接 cp)
-```
+- 协议中没有命令帧；Server 不主动连接 Agent；Agent 只接受 `heartbeat_ack`。
+- Agent 以非 root `probe` 用户运行，systemd 使用 `NoNewPrivileges`、`ProtectSystem=strict`、`RestrictAddressFamilies`、`MemoryMax` 等。
+- Agent Token、注册码、管理会话 Token 在数据库中只存 SHA-256。
+- 管理端使用不透明会话，不使用 JWT，也没有 `jwt_secret`。
+- 主题为编译进前端的 CSS 主题，不支持第三方 JS/主题市场。
+- Webhook/SMTP 出站经过私网/回环/链路本地地址过滤，禁止重定向，响应体限 1 KiB。
 
-## 文档
-
-- [设计文档 v1.3](docs/server_probe_design_v1.3.md) —— 产品规格、架构、安全设计、部署运维、里程碑(M0-M6)与 AI 开发提示词
-- [设计系统 MASTER](docs/design-system/MASTER.md) —— 前端视觉唯一依据(双主题 tokens、WCAG 对比度实测、组件规格)
-- [改进路线图](docs/ROADMAP.md) —— 与 Nezha/Komari/NodeGet 的功能对标与实施顺序
-- [Agent 占用基准](docs/BENCHMARK.md) —— 测量方法、当前实测与优化方向
+详见 `docs/server_probe_design.md`（v1.5 实现基线）。
 
 ## 开发
 
 ```bash
-make test             # Go 全量测试(12 包, 60+ 用例)
-make build-frontend   # 构建面板并拷贝到 server/web(编译带面板的 Server 前必跑)
-make build-linux      # 快速交叉编译(不含面板;发布请用 make release)
-make release          # 发布产物:前端内嵌 + Agent 内嵌 + SHA256(与 CI 同口径)
-make audit-noexec     # S4 审计门禁:Agent 代码零命令执行符号
-cd frontend && npm test   # 前端逻辑测试
+make test
+make vet
+make web    # 单独构建前端
 ```
 
-## 开发进度
+目录：
 
-- [x] M0 设计系统与视觉基线
-- [x] M1 基础架构 + 核心采集
-- [x] M2 Agent-Server 通信 + 注册上线
-- [x] M3 实时监控 + 前端面板
-- [x] M4 网络探测(Ping)+ 历史数据
-- [x] M5 告警 + 通知 + 安全加固
-- [x] M6 部署 + 发布 + 文档
+- `server/` — Go 主控、API、WebSocket、嵌入的前端
+- `agent/` — Linux Agent、采集、Ping、WS 上报
+- `common/` — 共享 wire 协议
+- `deploy/` — Docker Compose、安装脚本、发布签名
+- `server/web/` — React + Vite 前端源码
+- `docs/` — 设计文档
 
-## License
-
-待定(TBD)
+Agent 采集器目前仅支持 Linux；Windows/macOS 仅能编译，不能实际采集。

@@ -1,117 +1,144 @@
-// Package state 实现 Agent 本地状态持久化(state.json, 设计文档 4.3/4.4)。
+// Package state persists monthly traffic counters across agent restarts
+// (§4.4: /proc/net/dev counters reset on reboot, so the agent keeps its own
+// cumulative values). Writes are throttled to 60s to avoid SSD wear.
 package state
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
-	"github.com/YCJE/XProbe/internal/model"
+	"probe/common/wire"
 )
 
-// State 持久化的流量状态。
-type State struct {
-	Month string `json:"month"` // UTC 月标记 "2026-08"
-	// RxBytes/TxBytes 当月累计收发字节数(由每周期增量累加, 跨重启续算)。
-	RxBytes uint64 `json:"rx_bytes"`
-	TxBytes uint64 `json:"tx_bytes"`
-	// LastRxTotal/LastTxTotal 上次保存时观测到的网卡累计原始计数器,
-	// 用于检测计数器回绕/重启归零(delta 为负时按归零处理)。
-	LastRxTotal uint64 `json:"last_rx_total"`
-	LastTxTotal uint64 `json:"last_tx_total"`
-	Initialized bool   `json:"initialized"`
+const (
+	monthFormat = "2006-01"
+
+	// persistThrottle is the minimum interval between disk writes (§4.4).
+	persistThrottle = 60 * time.Second
+)
+
+type fileState struct {
+	Month        string `json:"month"`
+	CumulativeRx uint64 `json:"cumulative_rx"`
+	CumulativeTx uint64 `json:"cumulative_tx"`
+	LastRx       uint64 `json:"last_rx"`
+	LastTx       uint64 `json:"last_tx"`
 }
 
-// Tracker 维护月度流量累计, 实现 collector.TrafficTracker 接口。
+// Tracker is safe for concurrent use.
 type Tracker struct {
-	mu   sync.Mutex
-	path string // 为空表示内存模式(--once 演示), 不落盘
-	now  func() time.Time
-	st   State
+	path string
+
+	mu          sync.Mutex
+	st          fileState
+	loaded      bool // state file existed at Open (cumulative values restored)
+	inited      bool // at least one Update done (counter baseline established)
+	lastPersist time.Time
+	now         func() time.Time
 }
 
-// Load 读取状态文件; 文件不存在或损坏时以当前 UTC 月从零初始化(重新累计, 不阻断采集)。
-func Load(path string, now func() time.Time) (*Tracker, error) {
-	if now == nil {
-		now = time.Now
-	}
-	t := &Tracker{path: path, now: now, st: State{Month: model.MonthOf(now())}}
-	if path == "" {
-		return t, nil
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return t, nil
+// Open loads the state file (or starts fresh) and prepares the tracker.
+func Open(path string) (*Tracker, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create state dir: %w", err)
 		}
-		return nil, fmt.Errorf("read state file: %w", err)
 	}
-	var st State
-	if err := json.Unmarshal(b, &st); err != nil || st.Month == "" {
-		return t, nil // 损坏 → 重新累计
+
+	tr := &Tracker{path: path, now: time.Now}
+	b, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		if err := json.Unmarshal(b, &tr.st); err != nil {
+			return nil, fmt.Errorf("parse state file %s: %w", path, err)
+		}
+		tr.loaded = true
+		// Persisted Last counters are a valid baseline: deltas count immediately.
+		tr.inited = tr.st.Month != ""
+	case errors.Is(err, os.ErrNotExist):
+		// fresh start
+	default:
+		return nil, fmt.Errorf("read state file %s: %w", path, err)
 	}
-	t.st = st
-	return t, nil
+	tr.lastPersist = tr.now()
+	return tr, nil
 }
 
-// Update 传入本周期观测到的网卡累计字节数(lo 除外), 返回当前月度累计。
-// 每次调用都会原子落盘(上报周期 3s, 写入量可忽略)。
-func (t *Tracker) Update(rxTotal, txTotal uint64) model.TrafficMonthly {
+// Update folds current interface counters into the monthly cumulative totals.
+// totalRx/totalTx must exclude loopback. The month field and rollover use the
+// agent-local timezone (§4.4). Disk writes happen at most once per throttle
+// window, immediately on month rollover, and on Close.
+func (t *Tracker) Update(now time.Time, totalRx, totalTx uint64) (wire.TrafficMonthly, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if cur := model.MonthOf(t.now()); cur != t.st.Month {
-		// 跨自然月: 归零重新累计(设计文档 4.4, 月界 UTC)
+	var dRx, dTx uint64
+	if t.inited {
+		dRx = deltaSince(t.st.LastRx, totalRx)
+		dTx = deltaSince(t.st.LastTx, totalTx)
+	}
+
+	cur := now.Format(monthFormat)
+	rolled := cur != t.st.Month
+	if rolled {
 		t.st.Month = cur
-		t.st.RxBytes, t.st.TxBytes = 0, 0
+		t.st.CumulativeRx, t.st.CumulativeTx = 0, 0
+	}
+	t.st.CumulativeRx += dRx
+	t.st.CumulativeTx += dTx
+	t.st.LastRx, t.st.LastTx = totalRx, totalTx
+	t.inited = true
+
+	out := wire.TrafficMonthly{
+		Month:   t.st.Month,
+		RxBytes: t.st.CumulativeRx,
+		TxBytes: t.st.CumulativeTx,
 	}
 
-	if t.st.Initialized {
-		t.st.RxBytes += delta(t.st.LastRxTotal, rxTotal)
-		t.st.TxBytes += delta(t.st.LastTxTotal, txTotal)
-	} else {
-		// 首次安装: 以当前读数为基线, 不把安装前的历史流量计入
-		t.st.Initialized = true
+	var err error
+	if rolled || now.Sub(t.lastPersist) >= persistThrottle {
+		err = t.persistLocked()
+		t.lastPersist = now
 	}
-	t.st.LastRxTotal, t.st.LastTxTotal = rxTotal, txTotal
-
-	t.saveLocked()
-	return model.TrafficMonthly{Month: t.st.Month, RxBytes: t.st.RxBytes, TxBytes: t.st.TxBytes}
+	return out, err
 }
 
-// delta 计算计数器增量; cur < last 视为重启归零/回绕, 增量取 cur 全量。
-func delta(last, cur uint64) uint64 {
-	if cur < last {
-		return cur
+// Close forces a final persist.
+func (t *Tracker) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if err := t.persistLocked(); err != nil {
+		return err
 	}
-	return cur - last
+	t.lastPersist = t.now()
+	return nil
 }
 
-func (t *Tracker) saveLocked() {
-	if t.path == "" {
-		return
+// deltaSince computes counter growth; a shrinking counter means the machine
+// rebooted, so the new counter value becomes the delta from zero.
+func deltaSince(last, cur uint64) uint64 {
+	if cur >= last {
+		return cur - last
 	}
-	b, err := json.Marshal(&t.st)
+	return cur
+}
+
+func (t *Tracker) persistLocked() error {
+	b, err := json.Marshal(t.st)
 	if err != nil {
-		return
+		return fmt.Errorf("marshal state: %w", err)
 	}
-	dir := filepath.Dir(t.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		log.Printf("[state] mkdir %s: %v", dir, err)
-		return
-	}
-	// 原子写: 临时文件 + rename, 避免半写状态(权限 0600, S8)
 	tmp := t.path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		log.Printf("[state] write %s: %v", tmp, err) // 磁盘满等: 至少留痕, 流量累计仍内存有效
-		return
+		return fmt.Errorf("write state: %w", err)
 	}
 	if err := os.Rename(tmp, t.path); err != nil {
-		log.Printf("[state] rename %s: %v", t.path, err)
+		return fmt.Errorf("rename state: %w", err)
 	}
+	return nil
 }

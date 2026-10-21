@@ -3,146 +3,90 @@ package reporter
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
-
-	"github.com/YCJE/XProbe/internal/model"
+	"github.com/coder/websocket"
+	"probe/agent/internal/config"
+	"probe/common/wire"
 )
 
-func TestNextBackoff_Sequence(t *testing.T) {
-	base := time.Second
-	got := time.Duration(0)
-	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second,
-		16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second}
-	for i, w := range want {
-		got = NextBackoff(base, got)
-		if got != w {
-			t.Fatalf("step %d = %v, want %v", i, got, w)
+type fakeCollector struct{}
+
+func (fakeCollector) Collect() (wire.ReportData, error) {
+	return wire.ReportData{
+		CPU:     wire.CPUMetrics{Usage: 1, Cores: 1},
+		Memory:  wire.MemoryMetrics{Total: 100, Used: 10},
+		Network: wire.NetworkMetrics{},
+	}, nil
+}
+
+func TestReporterSendsReport(t *testing.T) {
+	reports := make(chan wire.Report, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/agent/config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
-	}
-}
-
-func TestWithJitter_Bounds(t *testing.T) {
-	d := 10 * time.Second
-	for r := 0.0; r < 1.0; r += 0.05 {
-		j := WithJitter(d, r)
-		if j < time.Duration(float64(d)*0.8) || j > time.Duration(float64(d)*1.2) {
-			t.Fatalf("jitter %v out of ±20%% for r=%f", j, r)
-		}
-	}
-	if WithJitter(0, 0.5) != 0 {
-		t.Fatal("jitter of 0 should be 0")
-	}
-}
-
-// countingServer 模拟 Server: 记录 report/heartbeat 帧数与连接次数。
-type countingServer struct {
-	mu                sync.Mutex
-	reports           int
-	heartbeats        int
-	conns             int
-	framesBeforeClose int // 每条连接收满 N 帧后主动断开(测重连), 0=不断
-	srv               *httptest.Server
-}
-
-func (s *countingServer) handler() http.HandlerFunc {
-	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	return func(w http.ResponseWriter, r *http.Request) {
-		c, err := up.Upgrade(w, r, nil)
+		_, _ = io.WriteString(w, `{"report_interval":1,"config_sync_interval":60,"ping_targets":[]}`)
+	})
+	mux.HandleFunc("/api/v1/agent/report", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 		if err != nil {
 			return
 		}
-		s.mu.Lock()
-		s.conns++
-		limit := s.framesBeforeClose
-		s.mu.Unlock()
-
-		defer c.Close()
-		frames := 0
+		defer conn.CloseNow()
 		for {
-			_, payload, err := c.ReadMessage()
+			_, data, err := conn.Read(context.Background())
 			if err != nil {
 				return
 			}
-			frames++
-			var head struct {
-				Type model.FrameType `json:"type"`
+			var envelope struct {
+				Type string `json:"type"`
 			}
-			if json.Unmarshal(payload, &head) != nil {
-				return
-			}
-			s.mu.Lock()
-			switch head.Type {
-			case model.FrameReport:
-				s.reports++
-			case model.FrameHeartbeat:
-				s.heartbeats++
-			}
-			s.mu.Unlock()
-
-			_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			ack, _ := json.Marshal(model.HeartbeatAck{Type: model.FrameHeartbeatAck})
-			if err := c.WriteMessage(websocket.TextMessage, ack); err != nil {
-				return
-			}
-			if limit > 0 && frames >= limit {
-				return // 模拟服务端断开 → 客户端应重连
+			_ = json.Unmarshal(data, &envelope)
+			switch envelope.Type {
+			case wire.TypeHeartbeat:
+				_ = conn.Write(context.Background(), websocket.MessageText, []byte(`{"type":"heartbeat_ack"}`))
+			case wire.TypeReport:
+				var report wire.Report
+				if json.Unmarshal(data, &report) == nil {
+					select {
+					case reports <- report:
+					default:
+					}
+				}
 			}
 		}
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cfg := &config.Config{
+		Server:             server.URL,
+		Token:              "token",
+		ReportInterval:     1,
+		ConfigSyncInterval: 60,
+		StateFile:          "unused",
 	}
-}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rep := New(cfg, fakeCollector{}, &http.Client{Timeout: 5 * time.Second}, "test", logger)
 
-func TestClient_RunReportsHeartbeatsAndReconnects(t *testing.T) {
-	cs := &countingServer{framesBeforeClose: 3} // 每连接收 3 帧后断开 → 触发重连
-	cs.srv = httptest.NewServer(cs.handler())
-	defer cs.srv.Close()
-
-	wsURL := "ws" + cs.srv.URL[len("http"):]
-	reports := 0
-	client := &Client{
-		WSURL:             wsURL,
-		Token:             "tok",
-		Fingerprint:       "fp",
-		ReportInterval:    30 * time.Millisecond,
-		HeartbeatInterval: 40 * time.Millisecond,
-		BackoffStart:      20 * time.Millisecond, // 加速测试重连
-		Dial: func(ctx context.Context, header http.Header) (*websocket.Conn, error) {
-			// 注入: 忽略 URL 校验/TLS(测试为 http), 但校验鉴权头已携带
-			if header.Get("Authorization") != "Bearer tok" || header.Get("X-Host-Fingerprint") != "fp" {
-				t.Errorf("missing auth headers: %v", header)
-			}
-			conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
-			return conn, err
-		},
-		Collect: func(ctx context.Context) (model.Report, error) {
-			reports++
-			u := 50.0
-			return model.Report{Type: model.FrameReport, Hostname: "t",
-				Data: model.ReportData{CPU: model.CPUInfo{Usage: &u}}}, nil
-		},
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = client.Run(ctx) // 以 ctx 超时结束
+	go func() { _ = rep.Run(ctx) }()
 
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	if cs.reports < 3 {
-		t.Fatalf("reports = %d, want >=3", cs.reports)
-	}
-	if cs.heartbeats < 1 {
-		t.Fatalf("heartbeats = %d, want >=1", cs.heartbeats)
-	}
-	if cs.conns < 2 {
-		t.Fatalf("connections = %d, want >=2 (reconnect after server close)", cs.conns)
-	}
-	if reports < 3 {
-		t.Fatalf("Collect calls = %d", reports)
+	select {
+	case report := <-reports:
+		if report.Type != wire.TypeReport || report.Hostname == "" {
+			t.Fatalf("unexpected report: %+v", report)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for a report")
 	}
 }

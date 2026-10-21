@@ -1,27 +1,31 @@
+# Runtime data, secrets and build outputs
+data/
+.uitest*/
+*.log
+.tmp-*
+*.db
+*.db-wal
+*.db-shm
+*.state.json
+bin/
+node_modules/
+dist/
+config.yaml
+probe-agent.yml
+*.pem
+*.key
+*.crt
+
+# Environment / local overrides
+.env
+.env.*
+!.env.example
+
 # Go
 *.exe
 *.test
 *.out
-/dist/
-
-# Node
-node_modules/
-/frontend/dist/
-
-# embed 目录: 构建产物不入库; 占位文件保证 go:embed 模式在 fresh checkout 非空
-/server/web/*
-!/server/web/.placeholder
-/server/assets/agents/*/*
-!/server/assets/agents/*/.keep
-
-# Data & secrets
-*.db
-*.db-wal
-*.db-shm
-/data/
-.env
-*.pem
-geoip/*.mmdb
+coverage.out
 
 # IDE / OS
 .idea/
@@ -29,8 +33,5 @@ geoip/*.mmdb
 .DS_Store
 Thumbs.db
 
-# ZCode session artifacts
+# Tool session artifacts
 .zcode/
-
-bin/
-cover.out

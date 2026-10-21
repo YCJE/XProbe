@@ -1,0 +1,18 @@
+# Direct TLS deployment. Put cert.pem/key.pem in ./certs and edit
+# config.tls.yaml with your public hostname.
+services:
+  probe:
+    build: ..
+    container_name: xprobe
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./data:/var/lib/probe
+      - ./config.tls.yaml:/etc/probe/config.yaml:ro
+      - ./certs:/etc/probe/certs:ro

@@ -1,4 +1,5 @@
-// Package register 实现 Agent 首次注册客户端(HTTPS REST, 设计文档 4.2)。
+// Package register exchanges a one-time registration code for the agent's
+// long-lived token over HTTPS.
 package register
 
 import (
@@ -6,51 +7,64 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"runtime"
+	"strings"
 
-	"github.com/YCJE/XProbe/internal/model"
+	"probe/agent/internal/config"
+	"probe/agent/internal/identity"
+	"probe/common/wire"
 )
 
-type Client struct {
-	HTTP      *http.Client // 须带 TLS Pinning 配置
-	ServerURL string       // https 基址
-}
-
-// Register 用注册码换取持久 Token。
-// 错误按 HTTP 语义返回: 400/401/409/429, 消息可直接展示给安装者。
-func (c *Client) Register(ctx context.Context, req model.RegisterRequest) (*model.RegisterResponse, error) {
-	body, err := json.Marshal(req)
+func Register(ctx context.Context, cfg *config.Config, client *http.Client, agentVersion string) (*wire.RegisterResponse, error) {
+	if cfg.RegisterCode == "" {
+		return nil, fmt.Errorf("register code is empty")
+	}
+	fingerprint, err := identity.Fingerprint(cfg.InstallSalt)
+	if err != nil {
+		return nil, fmt.Errorf("host fingerprint: %w", err)
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return nil, fmt.Errorf("hostname: %w", err)
+	}
+	body, err := json.Marshal(wire.RegisterRequest{
+		Hostname:        strings.TrimSpace(hostname),
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		AgentVersion:    agentVersion,
+		HostFingerprint: fingerprint,
+		InstallSalt:     cfg.InstallSalt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal registration: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.RegisterURL(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.ServerURL+"/api/v1/agent/register", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.RegisterCode)
+	req.Header.Set("User-Agent", "probe-agent/"+agentVersion)
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("register request: %w", err)
 	}
 	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		var out model.RegisterResponse
-		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-			return nil, fmt.Errorf("register response: %w", err)
-		}
-		if out.Token == "" {
-			return nil, fmt.Errorf("register response missing token")
-		}
-		return &out, nil
-	default:
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.NewDecoder(resp.Body).Decode(&e)
-		return nil, fmt.Errorf("register: HTTP %d: %s", resp.StatusCode, e.Error)
+	limited := io.LimitReader(resp.Body, 64*1024)
+	if resp.StatusCode != http.StatusCreated {
+		raw, _ := io.ReadAll(limited)
+		return nil, fmt.Errorf("register refused (%s): %s", resp.Status, strings.TrimSpace(string(raw)))
 	}
+	var out wire.RegisterResponse
+	if err := json.NewDecoder(limited).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode registration: %w", err)
+	}
+	if out.Token == "" || out.AgentID == 0 {
+		return nil, fmt.Errorf("hub returned an incomplete registration")
+	}
+	return &out, nil
 }

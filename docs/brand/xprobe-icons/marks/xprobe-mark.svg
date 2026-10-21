@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" role="img" aria-labelledby="title">
+  <title id="title">XProbe mark (currentColor)</title>
+  <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15.5 9.5 6h2.2L6.2 19H4z"/>
+    <path d="M10.5 19 16 9.5h2.2L12.7 19z"/>
+    <circle cx="18.5" cy="5.5" r="1.6" fill="currentColor" stroke="none"/>
+  </g>
+</svg>

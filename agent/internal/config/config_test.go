@@ -7,70 +7,91 @@ import (
 	"testing"
 )
 
-func TestLoad_MissingFile(t *testing.T) {
-	if _, err := Load(filepath.Join(t.TempDir(), "nope.yml")); !os.IsNotExist(err) {
-		t.Fatalf("err = %v, want not exist", err)
+func valid() *Config {
+	c := Defaults()
+	c.Server = "http://127.0.0.1:8080"
+	c.Token = "token"
+	c.InstallSalt = "salt"
+	c.StateFile = filepath.Join(os.TempDir(), "probe-agent-state.json")
+	return &c
+}
+
+func TestHTTPSPublicServerAndURLs(t *testing.T) {
+	c := valid()
+	c.Server = "https://monitor.example.com"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if got := c.WebSocketURL(); got != "wss://monitor.example.com/api/v1/agent/report" {
+		t.Fatalf("websocket URL = %q", got)
+	}
+	if got := c.ConfigURL(); got != "https://monitor.example.com/api/v1/agent/config" {
+		t.Fatalf("config URL = %q", got)
 	}
 }
 
-func TestLoad_EmptyPathDefaults(t *testing.T) {
-	c, err := Load("")
+func TestHTTPPublicServerIsRefused(t *testing.T) {
+	c := valid()
+	c.Server = "http://monitor.example.com"
+	if err := c.Validate(); err == nil {
+		t.Fatal("public http server was accepted")
+	}
+}
+
+func TestRegistrationRequiresSalt(t *testing.T) {
+	c := valid()
+	c.Token = ""
+	c.RegisterCode = "CODE"
+	c.InstallSalt = ""
+	if err := c.Validate(); err == nil {
+		t.Fatal("register code without install_salt was accepted")
+	}
+	c.InstallSalt = "salt"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+}
+
+func TestPinningRequiresHexPins(t *testing.T) {
+	c := valid()
+	c.TLSPinMode = "spki_sha256"
+	if err := c.Validate(); err == nil {
+		t.Fatal("pinning without pins was accepted")
+	}
+	c.ServerCertPins = []string{"AA:BB"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("short pin was accepted")
+	}
+	c.ServerCertPins = []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid pin rejected: %v", err)
+	}
+	if c.ServerCertPins[0] != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Fatalf("pin was not normalized: %q", c.ServerCertPins[0])
+	}
+}
+
+func TestSaveLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agent.yml")
+	c := valid()
+	c.Server = "https://monitor.example.com"
+	c.Token = "secret-token"
+	if err := c.Save(path); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(path)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("load: %v", err)
 	}
-	if c.ReportInterval != 3 || c.StateFile != "/var/lib/probe-agent/state.json" || c.PingMethod != "auto" {
-		t.Fatalf("defaults wrong: %+v", c)
+	if loaded.Server != c.Server || loaded.Token != c.Token || loaded.ReportInterval != 3 {
+		t.Fatalf("unexpected loaded config: %+v", loaded)
 	}
-}
-
-func TestLoadAndSave_RoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yml")
-	src := `server: "https://probe.example.com"
-token: "tok-abc"
-install_salt: "salt-xyz"
-server_cert_fingerprints:
-  - "aa11"
-  - "bb22"
-report_interval: 5
-`
-	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+	info, err := os.Stat(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if c.Server != "https://probe.example.com" || c.Token != "tok-abc" || len(c.ServerCertFingerprints) != 2 {
-		t.Fatalf("parsed = %+v", c)
-	}
-
-	// 注册成功后: 写回 Token, 清除注册码
-	c.Token = "tok-new"
-	c.RegisterCode = ""
-	if err := Save(path, c); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	c2, err := Load(path)
-	if err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	if c2.Token != "tok-new" || c2.RegisterCode != "" || c2.InstallSalt != "salt-xyz" {
-		t.Fatalf("after save = %+v", c2)
-	}
-
-	// 权限 600(S8); Windows 不映射 POSIX 权限位, 以生产 Linux 为准
-	if runtime.GOOS != "windows" {
-		info, _ := os.Stat(path)
-		if info.Mode().Perm() != 0o600 {
-			t.Fatalf("config perms = %v, want 600", info.Mode().Perm())
-		}
-	}
-}
-
-func TestLoad_InvalidPingMethod(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "config.yml")
-	os.WriteFile(path, []byte("ping_method: \"dns\"\n"), 0o600)
-	if _, err := Load(path); err == nil {
-		t.Fatal("invalid ping_method should error")
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("config permissions are too broad: %s", info.Mode().Perm())
 	}
 }

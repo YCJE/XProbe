@@ -1,41 +1,30 @@
-# syntax=docker/dockerfile:1
-# XProbe 多阶段构建(设计文档 10.8 M6):
-# 前端构建 → Agent 三架构构建 → Server(内嵌前端 + Agent 二进制) → 精简运行时。
-
-FROM node:20-alpine AS frontend
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
-COPY frontend/ ./
+# Build the embedded web UI first, then the Go binary.
+FROM node:24-alpine AS web
+WORKDIR /src/server/web
+COPY server/web/package.json server/web/package-lock.json ./
+RUN npm ci
+COPY server/web ./
 RUN npm run build
 
-FROM golang:1.26-alpine AS agent
+FROM golang:1.26.9-alpine AS build
+RUN apk add --no-cache ca-certificates
 WORKDIR /src
-COPY go.mod go.sum ./
-COPY agent/ ./agent/
-COPY internal/ ./internal/
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o out/agents/linux-amd64/xprobe-agent ./agent/cmd/agent \
- && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o out/agents/linux-arm64/xprobe-agent ./agent/cmd/agent \
- && CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -trimpath -o out/agents/linux-armv7/xprobe-agent ./agent/cmd/agent \
- && cd out/agents && for d in */; do (cd "$d" && sha256sum xprobe-agent > xprobe-agent.sha256); done
+COPY go.work go.work.sum ./
+COPY common ./common
+COPY agent ./agent
+COPY server ./server
+COPY --from=web /src/server/internal/webui/dist ./server/internal/webui/dist
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+    -o /out/probe-server ./server/cmd/server
 
-FROM golang:1.26-alpine AS server
-ARG VERSION=dev
-WORKDIR /src
-COPY go.mod go.sum ./
-COPY internal/ ./internal/
-COPY server/ ./server/
-COPY --from=frontend /app/frontend/dist ./server/web
-COPY --from=agent /src/out/agents ./server/assets/agents
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags "-s -w -X github.com/YCJE/XProbe/internal/version.Version=${VERSION}" \
-    -o out/xprobe-server ./server/cmd/server
-
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates sqlite \
- && adduser -D -H -u 10000 probe
-COPY --from=server /src/out/xprobe-server /usr/local/bin/xprobe-server
-USER probe
-VOLUME ["/data"]
-EXPOSE 443
-ENTRYPOINT ["/usr/local/bin/xprobe-server", "--data-dir", "/data"]
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates tzdata \
+    && addgroup -g 10001 -S probe \
+    && adduser -u 10001 -S -G probe -h /var/lib/probe probe \
+    && mkdir -p /var/lib/probe /etc/probe \
+    && chown -R 10001:10001 /var/lib/probe /etc/probe
+COPY --from=build /out/probe-server /usr/local/bin/probe-server
+USER 10001:10001
+WORKDIR /var/lib/probe
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/probe-server", "-config", "/etc/probe/config.yaml"]

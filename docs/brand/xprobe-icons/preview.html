@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XProbe · 图标导出</title>
+<style>
+  :root {
+    --bg: #0d0e10;
+    --panel: #191916;
+    --panel-2: #1f1f1b;
+    --line: rgba(243, 238, 227, .10);
+    --text: #f3eee3;
+    --muted: #a79f90;
+    --dim: #736c60;
+    --amber: #e9a852;
+    --sage: #a3b891;
+    --ink: #1b1a17;
+    --paper: #f4f0e8;
+    --mono: "Cascadia Code", "SFMono-Regular", "JetBrains Mono", ui-monospace, monospace;
+    --sans: "Inter", "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(900px 440px at 16% -8%, rgba(233, 168, 82, .09), transparent 64%),
+      radial-gradient(700px 380px at 92% 4%, rgba(163, 184, 145, .05), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .45;
+    background-image: radial-gradient(rgba(255,255,255,.055) .6px, transparent .6px);
+    background-size: 6px 6px;
+  }
+  .wrap { position: relative; max-width: 1320px; margin: 0 auto; padding: 44px 28px 64px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; flex-wrap: wrap; margin-bottom: 34px; }
+  .kicker {
+    display: inline-flex; align-items: center; gap: 9px; font: 600 10px/1 var(--mono);
+    letter-spacing: .18em; color: var(--muted); margin-bottom: 14px;
+  }
+  .kicker::before { content: ""; width: 24px; height: 1px; background: var(--amber); box-shadow: 0 0 10px rgba(233,168,82,.55); }
+  h1 { margin: 0 0 10px; font-size: clamp(30px, 4vw, 48px); font-weight: 620; letter-spacing: -.045em; }
+  h1 span { color: var(--muted); font-weight: 350; }
+  .top p { max-width: 560px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+  .mark-top { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,255,255,.025); }
+  .mark-top img { width: 54px; height: 54px; display: block; }
+  .mark-top div span { display: block; font: 600 9px/1 var(--mono); letter-spacing: .15em; color: var(--amber); }
+  .mark-top div strong { display: block; margin-top: 7px; font-size: 13px; font-weight: 560; }
+  .mark-top div small { display: block; margin-top: 4px; color: var(--dim); font: 500 9px/1.4 var(--mono); }
+
+  .section { margin-top: 38px; }
+  .section-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  .section-head span { font: 600 9px/1 var(--mono); letter-spacing: .18em; color: var(--amber); }
+  .section-head h2 { margin: 0; font-size: 19px; letter-spacing: -.025em; font-weight: 600; }
+  .section-head p { margin: 0 0 0 auto; color: var(--dim); font-size: 11px; }
+  .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .card {
+    border: 1px solid var(--line); border-radius: 18px; padding: 16px;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--panel-2) 92%, #fff 8%), var(--panel));
+    box-shadow: 0 20px 50px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.04);
+    transition: transform .18s ease, border-color .18s ease;
+  }
+  .card:hover { transform: translateY(-2px); border-color: rgba(233,168,82,.28); }
+  .icon-stage {
+    display: grid; place-items: center; min-height: 172px; border-radius: 13px;
+    border: 1px solid rgba(255,255,255,.06); background:
+      linear-gradient(rgba(243,238,227,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(243,238,227,.035) 1px, transparent 1px),
+      #111210;
+    background-size: 24px 24px, 24px 24px, auto;
+  }
+  .icon-stage img { width: 112px; height: 112px; display: block; filter: drop-shadow(0 14px 26px rgba(0,0,0,.3)); }
+  .card-meta { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 14px; }
+  .card-meta strong { display: block; font-size: 13px; font-weight: 570; letter-spacing: -.01em; }
+  .card-meta code { display: block; margin-top: 6px; color: var(--dim); font: 500 9px/1.5 var(--mono); word-break: break-all; }
+  .download {
+    flex: none; display: inline-flex; align-items: center; gap: 5px; height: 27px; padding: 0 9px;
+    border: 1px solid var(--line); border-radius: 7px; color: var(--muted); text-decoration: none;
+    font: 500 9px/1 var(--mono); letter-spacing: .04em;
+  }
+  .download:hover { color: var(--text); border-color: rgba(233,168,82,.4); background: rgba(233,168,82,.07); }
+  .note { margin: 12px 0 0; color: var(--dim); font-size: 10.5px; line-height: 1.7; }
+
+  .marks { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .mark-card { padding: 12px; }
+  .mark-tile { min-height: 118px; display: grid; place-items: center; border-radius: 12px; border: 1px solid rgba(255,255,255,.06); }
+  .mark-tile.dark { background: #111210; }
+  .mark-tile.light { background: var(--paper); }
+  .mark-tile img { width: 58px; height: 58px; display: block; }
+  .mark-label { margin-top: 10px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .mark-label strong { font-size: 11px; font-weight: 560; }
+  .mark-label span { font: 500 8.5px/1 var(--mono); color: var(--dim); }
+  .mark-card code { display: block; margin-top: 5px; color: var(--dim); font: 500 8.5px/1.6 var(--mono); word-break: break-all; }
+
+  .favicon-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; }
+  .browser {
+    border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: #1a1a17;
+  }
+  .browser-bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .browser-bar i { width: 7px; height: 7px; border-radius: 50%; background: #3b372f; display: block; }
+  .tab {
+    display: flex; align-items: center; gap: 7px; margin-left: 12px; padding: 7px 11px; border-radius: 7px 7px 0 0;
+    background: #24241f; border: 1px solid var(--line); border-bottom: 0; color: var(--muted); font-size: 10.5px;
+  }
+  .tab img { width: 16px; height: 16px; display: block; }
+  .browser-body { padding: 26px; display: flex; align-items: center; gap: 18px; }
+  .browser-body img { width: 64px; height: 64px; display: block; }
+  .browser-body h3 { margin: 0 0 5px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
+  .browser-body p { margin: 0; color: var(--dim); font-size: 10.5px; line-height: 1.65; }
+  .sizes { display: flex; align-items: center; justify-content: space-around; gap: 12px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+  .size { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--dim); font: 500 8.5px/1 var(--mono); }
+  .size img { display: block; }
+
+  .spec-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .spec { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: rgba(255,255,255,.018); }
+  .spec header { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .spec header img { width: 32px; height: 32px; display: block; }
+  .spec header strong { font-size: 12px; font-weight: 570; }
+  .spec header span { display: block; margin-top: 3px; color: var(--dim); font: 500 8.5px/1 var(--mono); }
+  .spec dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 14px; margin: 0; font-size: 10px; }
+  .spec dt { color: var(--dim); }
+  .spec dd { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 9.5px; }
+  .swatches { display: flex; gap: 5px; margin-top: 12px; }
+  .swatches i { width: 24px; height: 16px; border-radius: 4px; border: 1px solid rgba(255,255,255,.12); display: block; }
+
+  footer { margin-top: 42px; padding-top: 18px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; color: var(--dim); font: 500 9px/1.6 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+  footer span:last-child { color: var(--muted); }
+
+  @media (max-width: 1040px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .marks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .favicon-row { grid-template-columns: 1fr; }
+    .spec-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 26px 16px 46px; }
+    .grid, .marks { grid-template-columns: 1fr; }
+    .section-head { flex-wrap: wrap; }
+    .section-head p { margin-left: 0; width: 100%; }
+    .browser-body { flex-direction: column; align-items: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="kicker">XPROBE / BRAND ASSETS</div>
+      <h1>图标导出 <span>/ Icon Kit</span></h1>
+      <p>使用应用内现有的 XProbe 标记，按三套内置主题生成。全部为独立 SVG，无外部字体、图片或脚本，可直接用于 favicon、PWA 图标、文档和发布物料。</p>
+    </div>
+    <div class="mark-top">
+      <img src="app-icons/xprobe-icon-graphite.svg" alt="XProbe 石墨琥珀图标">
+      <div><span>MASTER MARK</span><strong>XProbe</strong><small>24×24 glyph · 1.8 stroke</small></div>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="section-head"><span>01</span><h2>应用图标</h2><p>64 × 64 · 圆角方形 · 适配各主题签名模式</p></div>
+    <div class="grid">
+      <article class="card">
+        <div class="icon-stage"><img src="app-icons/xprobe-icon-mission-dark.svg" alt="任务控制深色图标"></div>
+        <div class="card-meta"><div><strong>任务控制 · 深色</strong><code>xprobe-icon-mission-dark.svg</code></div><a class="download" href="app-icons/xprobe-icon-mission-dark.svg" download>SVG ↓</a></div>
+      </article>
+      <article class="card">
+        <div class="icon-stage"><img src="app-icons/xprobe-icon-mission-light.svg" alt="任务控制浅色图标"></div>
+        <div class="card-meta"><div><strong>任务控制 · 浅色</strong><code>xprobe-icon-mission-light.svg</code></div><a class="download" href="app-icons/xprobe-icon-mission-light.svg" download>SVG ↓</a></div>
+      </article>
+      <article class="card">
+        <div class="icon-stage"><img src="app-icons/xprobe-icon-editorial-light.svg" alt="纸面编辑浅色图标"></div>
+        <div class="card-meta"><div><strong>纸面编辑 · 浅色</strong><code>xprobe-icon-editorial-light.svg</code></div><a class="download" href="app-icons/xprobe-icon-editorial-light.svg" download>SVG ↓</a></div>
+      </article>
+      <article class="card">
+        <div class="icon-stage"><img src="app-icons/xprobe-icon-editorial-dark.svg" alt="纸面编辑深色图标"></div>
+        <div class="card-meta"><div><strong>纸面编辑 · 深色</strong><code>xprobe-icon-editorial-dark.svg</code></div><a class="download" href="app-icons/xprobe-icon-editorial-dark.svg" download>SVG ↓</a></div>
+      </article>
+      <article class="card">
+        <div class="icon-stage"><img src="app-icons/xprobe-icon-graphite.svg" alt="石墨琥珀图标"></div>
+        <div class="card-meta"><div><strong>石墨琥珀 · 通用</strong><code>xprobe-icon-graphite.svg</code></div><a class="download" href="app-icons/xprobe-icon-graphite.svg" download>SVG ↓</a></div>
+      </article>
+    </div>
+    <p class="note">任务控制与纸面编辑在明暗模式下使用不同的底色/字色，因此各导出两份；石墨琥珀的品牌标记在两种模式下一致。</p>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><span>02</span><h2>单色标记</h2><p>透明底 · 24 × 24 viewBox · 可直接内联并用 currentColor 着色</p></div>
+    <div class="grid marks">
+      <article class="mark-card card">
+        <div class="mark-tile dark"><img src="marks/xprobe-mark-mint.svg" alt="薄荷绿 XProbe 标记"></div>
+        <div class="mark-label"><strong>Mint</strong><span>#6EE7B7</span></div>
+        <code>xprobe-mark-mint.svg</code>
+      </article>
+      <article class="mark-card card">
+        <div class="mark-tile light"><img src="marks/xprobe-mark-ink.svg" alt="墨色 XProbe 标记"></div>
+        <div class="mark-label"><strong>Ink</strong><span>#1B1A17</span></div>
+        <code>xprobe-mark-ink.svg</code>
+      </article>
+      <article class="mark-card card">
+        <div class="mark-tile dark"><img src="marks/xprobe-mark-cream.svg" alt="米白 XProbe 标记"></div>
+        <div class="mark-label"><strong>Cream</strong><span>#F1ECE2</span></div>
+        <code>xprobe-mark-cream.svg</code>
+      </article>
+      <article class="mark-card card">
+        <div class="mark-tile dark"><img src="marks/xprobe-mark-amber.svg" alt="琥珀 XProbe 标记"></div>
+        <div class="mark-label"><strong>Amber</strong><span>#E9A852</span></div>
+        <code>xprobe-mark-amber.svg</code>
+      </article>
+      <article class="mark-card card">
+        <div class="mark-tile light"><img src="marks/xprobe-mark.svg" alt="currentColor XProbe 标记"></div>
+        <div class="mark-label"><strong>Master</strong><span>currentColor</span></div>
+        <code>xprobe-mark.svg</code>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><span>03</span><h2>Favicon</h2><p>64 × 64 · 石墨琥珀 · 小尺寸优化</p></div>
+    <div class="favicon-row">
+      <div class="browser">
+        <div class="browser-bar"><i></i><i></i><i></i><div class="tab"><img src="favicon.svg" alt="">XProbe</div></div>
+        <div class="browser-body">
+          <img src="favicon.svg" alt="XProbe favicon 64px">
+          <div><h3>XProbe</h3><p>只读服务器状态 · Agent 只上报，不接受远程命令。<br>把 favicon.svg 放到站点根目录并在 head 中引用即可。</p></div>
+        </div>
+      </div>
+      <div class="sizes">
+        <div class="size"><img src="favicon.svg" width="64" height="64" alt="64px favicon"><span>64</span></div>
+        <div class="size"><img src="favicon.svg" width="32" height="32" alt="32px favicon"><span>32</span></div>
+        <div class="size"><img src="favicon.svg" width="16" height="16" alt="16px favicon"><span>16</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="section-head"><span>04</span><h2>样式规格</h2><p>与前端主题 token 对齐</p></div>
+    <div class="spec-grid">
+      <article class="spec">
+        <header><img src="app-icons/xprobe-icon-mission-dark.svg" alt=""><div><strong>任务控制</strong><span>MISSION CONTROL</span></div></header>
+        <dl><dt>底</dt><dd>#6EE7B7 → #7DD3FC</dd><dt>字</dt><dd>#070A0F</dd><dt>圆角</dt><dd>14 / 64</dd></dl>
+        <div class="swatches"><i style="background:#6EE7B7"></i><i style="background:#7DD3FC"></i><i style="background:#070A0F"></i></div>
+      </article>
+      <article class="spec">
+        <header><img src="app-icons/xprobe-icon-editorial-light.svg" alt=""><div><strong>纸面编辑</strong><span>EDITORIAL</span></div></header>
+        <dl><dt>底</dt><dd>#1B1A17 / #F1ECE2</dd><dt>字</dt><dd>#F4F0E8 / #171614</dd><dt>圆角</dt><dd>4 / 64</dd></dl>
+        <div class="swatches"><i style="background:#1B1A17"></i><i style="background:#F4F0E8"></i><i style="background:#B33A22"></i></div>
+      </article>
+      <article class="spec">
+        <header><img src="app-icons/xprobe-icon-graphite.svg" alt=""><div><strong>石墨琥珀</strong><span>GRAPHITE AMBER</span></div></header>
+        <dl><dt>底</dt><dd>#F2BD70 → #D9913C</dd><dt>字</dt><dd>#251707</dd><dt>圆角</dt><dd>18 / 64</dd></dl>
+        <div class="swatches"><i style="background:#F2BD70"></i><i style="background:#D9913C"></i><i style="background:#E9A852"></i><i style="background:#A3B891"></i></div>
+      </article>
+    </div>
+    <p class="note">图形基于 24 × 24 网格与 1.8px 描边，与应用内 <code>IconLogo</code> 保持一致；应用图标将图形放大到 40/64，favicon 放大到 42/64 以提升 16px 下的辨识度。</p>
+  </section>
+
+  <footer><span>XPROBE / ICON KIT · SVG ONLY · NO EXTERNAL ASSETS</span><span>64 × 64 app icons · 24 × 24 marks · currentColor master</span></footer>
+</div>
+</body>
+</html>

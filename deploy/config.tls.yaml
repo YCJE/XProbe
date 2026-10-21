@@ -1,0 +1,23 @@
+listen: "0.0.0.0:8443"
+public_url: "https://monitor.example.com"
+data_dir: "/var/lib/probe"
+tls:
+  mode: "files"
+  cert: "/etc/probe/certs/cert.pem"
+  key: "/etc/probe/certs/key.pem"
+proxy:
+  mode: "none"
+auth:
+  session_idle: "2h"
+  session_max: "168h"
+  login_rate_limit: 5
+monitor:
+  report_interval: 3
+  heartbeat_timeout: 90
+  ring_buffer_size: 3600
+  aggregation_interval: 300
+storage:
+  data_retention_days: 90
+  sqlite_busy_timeout_ms: 5000
+log:
+  level: "info"

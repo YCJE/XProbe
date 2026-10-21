@@ -1,101 +1,149 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/YCJE/XProbe/internal/model"
 )
 
-func fixedNow(y int, m time.Month, d int) func() time.Time {
-	return func() time.Time { return time.Date(y, m, d, 12, 0, 0, 0, time.UTC) }
-}
-
-func TestTracker_FreshInstallBaseline(t *testing.T) {
-	// 首次安装: 当前读数为基线, 不把安装前流量计入
-	tr, _ := Load("", fixedNow(2026, 8, 1))
-	m := tr.Update(5000, 3000)
-	if m.RxBytes != 0 || m.TxBytes != 0 {
-		t.Fatalf("fresh baseline should be 0, got %+v", m)
-	}
-	m = tr.Update(6000, 3500)
-	if m.RxBytes != 1000 || m.TxBytes != 500 {
-		t.Fatalf("increment = %+v, want rx=1000 tx=500", m)
-	}
-}
-
-func TestTracker_UTCYearMonthBoundary(t *testing.T) {
-	tr, _ := Load("", fixedNow(2026, 8, 31))
-	tr.Update(1000, 500)
-	tr.Update(2000, 800) // 8 月累计 rx=1000 tx=300
-
-	// 跨到 9 月: 归零重新累计(设计文档 4.4 月界 UTC)
-	tr.now = fixedNow(2026, 9, 1)
-	m := tr.Update(3000, 1200)
-	if m.Month != "2026-09" {
-		t.Fatalf("month = %s, want 2026-09", m.Month)
-	}
-	if m.RxBytes != 1000 || m.TxBytes != 400 {
-		t.Fatalf("after rollover = %+v, want rx=1000 tx=400 (delta only)", m)
-	}
-}
-
-func TestTracker_CounterResetAfterReboot(t *testing.T) {
-	tr, _ := Load("", fixedNow(2026, 8, 10))
-	tr.Update(100<<30, 50<<30) // 长期运行, 累计很大
-	tr.Update((100<<30)+1000, (50<<30)+500)
-
-	// 重启: /proc/net/dev 计数器从 0 重新增长, cur < last → 增量取 cur 全量
-	m := tr.Update(2<<30, 1<<30)
-	if m.RxBytes != 1000+2<<30 {
-		t.Fatalf("rx = %d, want %d", m.RxBytes, 1000+2<<30)
-	}
-	if m.TxBytes != 500+1<<30 {
-		t.Fatalf("tx = %d, want %d", m.TxBytes, 500+1<<30)
-	}
-}
-
-func TestTracker_PersistAcrossReload(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
-	tr1, err := Load(path, fixedNow(2026, 8, 15))
+func testTracker(t *testing.T) (*Tracker, *time.Time) {
+	t.Helper()
+	tr, err := Open(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("open: %v", err)
 	}
-	tr1.Update(1000, 500)
-	tr1.Update(3000, 1500)
+	t.Cleanup(func() { _ = tr.Close() })
 
-	tr2, err := Load(path, fixedNow(2026, 8, 15))
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.Local)
+	cur := base
+	tr.now = func() time.Time { return cur }
+	return tr, &cur
+}
+
+func readState(t *testing.T, tr *Tracker) fileState {
+	t.Helper()
+	b, err := os.ReadFile(tr.path)
 	if err != nil {
-		t.Fatalf("reload: %v", err)
+		t.Fatalf("read state file: %v", err)
 	}
-	m := tr2.Update(4000, 2000)
-	if m.RxBytes != 3000 || m.TxBytes != 1500 {
-		t.Fatalf("after reload = %+v, want rx=3000 tx=1500", m)
+	var st fileState
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("state file missing: %v", err)
+	return st
+}
+
+func TestAccumulateAcrossRestart(t *testing.T) {
+	tr, clock := testTracker(t)
+
+	// First call establishes the baseline: no delta, nothing counted yet.
+	out, err := tr.Update(*clock, 1000, 500)
+	if err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+	if out.Month != "2026-09" || out.RxBytes != 0 || out.TxBytes != 0 {
+		t.Fatalf("first update out = %+v", out)
+	}
+
+	// Simulate a reboot: fresh tracker, same counters on disk now at 2000.
+	*clock = clock.Add(time.Second)
+	_ = tr.Close()
+	tr2, err := Open(tr.path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	tr2.now = tr.now
+
+	out, err = tr2.Update(clock.Add(time.Second), 2000, 1500)
+	if err != nil {
+		t.Fatalf("second update: %v", err)
+	}
+	// delta = 2000-1000 = 1000 rx; 1500-500 = 1000 tx, accumulated on top of 0.
+	if out.RxBytes != 1000 || out.TxBytes != 1000 {
+		t.Fatalf("accumulate wrong: %+v", out)
+	}
+	// Close() must force-persist the cumulative values.
+	_ = tr2.Close()
+	st := readState(t, tr2)
+	if st.CumulativeRx != 1000 || st.CumulativeTx != 1000 {
+		t.Fatalf("persisted state wrong: %+v", st)
 	}
 }
 
-func TestTracker_CorruptStateStartsOver(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
-	os.WriteFile(path, []byte("{corrupt"), 0o600)
-	tr, err := Load(path, fixedNow(2026, 8, 15))
-	if err != nil {
-		t.Fatalf("Load corrupt: %v", err)
+func TestCounterResetOnReboot(t *testing.T) {
+	tr, clock := testTracker(t)
+
+	// Fresh tracker: first update only establishes the baseline (no delta).
+	if _, err := tr.Update(*clock, 5000, 2500); err != nil {
+		t.Fatalf("update: %v", err)
 	}
-	m := tr.Update(1000, 500)
-	if m.Month != "2026-08" || m.RxBytes != 0 {
-		t.Fatalf("corrupt state should restart cleanly, got %+v", m)
+	*clock = clock.Add(time.Minute) // past throttle, persists
+
+	// Counters drop: machine rebooted with fresh /proc/net/dev.
+	out, err := tr.Update(*clock, 300, 200)
+	if err != nil {
+		t.Fatalf("update after reset: %v", err)
+	}
+	// Deltas restart from the new counter values: 300 rx, 200 tx.
+	if out.RxBytes != 300 || out.TxBytes != 200 {
+		t.Fatalf("reset handling wrong: %+v", out)
 	}
 }
 
-func TestMonthOf_UTC(t *testing.T) {
-	// 2026-08-31 23:30 UTC+8 = 2026-08-31 15:30 UTC → 2026-08
-	ts := time.Date(2026, 8, 31, 23, 30, 0, 0, time.FixedZone("CST", 8*3600))
-	if got := model.MonthOf(ts); got != "2026-08" {
-		t.Fatalf("month = %s, want 2026-08", got)
+func TestMonthRolloverResetsAndPersists(t *testing.T) {
+	tr, clock := testTracker(t)
+
+	if _, err := tr.Update(*clock, 10000, 5000); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	*clock = time.Date(2026, 10, 1, 0, 0, 1, 0, time.Local)
+	out, err := tr.Update(*clock, 10500, 5200)
+	if err != nil {
+		t.Fatalf("update after rollover: %v", err)
+	}
+	if out.Month != "2026-10" {
+		t.Fatalf("month = %s, want 2026-10", out.Month)
+	}
+	if out.RxBytes != 500 || out.TxBytes != 200 {
+		t.Fatalf("rollover should reset cumulative: %+v", out)
+	}
+	// Rollover forces an immediate persist even inside the throttle window.
+	st := readState(t, tr)
+	if st.Month != "2026-10" || st.CumulativeRx != 500 {
+		t.Fatalf("rollover not persisted: %+v", st)
+	}
+}
+
+func TestThrottledPersist(t *testing.T) {
+	tr, clock := testTracker(t)
+
+	// First update persists the baseline immediately (durability default).
+	if _, err := tr.Update(*clock, 1000, 500); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	st := readState(t, tr)
+	if st.LastRx != 1000 || st.CumulativeRx != 0 {
+		t.Fatalf("baseline state wrong: %+v", st)
+	}
+
+	// Second update inside the throttle window: in-memory only.
+	if _, err := tr.Update(clock.Add(time.Second), 1100, 600); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	st = readState(t, tr)
+	if st.LastRx != 1000 {
+		t.Fatalf("expected no persist inside throttle window: %+v", st)
+	}
+
+	// Past the throttle window: deltas land on disk.
+	if _, err := tr.Update(clock.Add(61*time.Second), 2000, 1000); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	st = readState(t, tr)
+	if st.CumulativeRx != 1000 || st.CumulativeTx != 500 || st.LastRx != 2000 {
+		t.Fatalf("expected persist after throttle window: %+v", st)
 	}
 }

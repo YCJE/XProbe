@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-labelledby="title">
+  <title id="title">XProbe</title>
+  <defs>
+    <linearGradient id="bg" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2BD70"/>
+      <stop offset="1" stop-color="#D9913C"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  <g transform="translate(10 10) scale(1.8333)" stroke="#251707" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15.5 9.5 6h2.2L6.2 19H4z"/>
+    <path d="M10.5 19 16 9.5h2.2L12.7 19z"/>
+    <circle cx="18.5" cy="5.5" r="1.9" fill="#251707" stroke="none"/>
+  </g>
+</svg>
