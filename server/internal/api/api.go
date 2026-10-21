@@ -31,7 +31,7 @@ import (
 	"probe/server/internal/webui"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 const (
 	maxJSONBody   = 16 * 1024

@@ -26,6 +26,44 @@
 - **公开状态页**：128-bit 随机分享 ID，白名单字段，不展示 IP、Token 或配置。
 - **安装分发**：服务端托管 Agent 二进制和安装脚本；支持 SHA-256 与可选 Ed25519 签名校验。
 
+## 界面截图
+
+> 以下截图来自本地测试实例，节点和指标均为演示数据。
+
+| 石墨琥珀（默认） | 任务控制 |
+| --- | --- |
+| ![石墨琥珀仪表盘](docs/screenshots/dashboard-graphite.png) | ![任务控制仪表盘](docs/screenshots/dashboard-mission.png) |
+| **纸面编辑** | **告警规则与通知渠道** |
+| ![纸面编辑仪表盘](docs/screenshots/dashboard-editorial.png) | ![告警规则与通知渠道](docs/screenshots/settings-alerts.png) |
+
+**公开只读状态页**
+
+![公开状态页](docs/screenshots/public-editorial.png)
+
+## 图标
+
+应用图标（64 × 64，圆角方形）：
+
+| 任务控制 · 深色 | 任务控制 · 浅色 | 纸面编辑 · 浅色 | 纸面编辑 · 深色 | 石墨琥珀 |
+| --- | --- | --- | --- | --- |
+| ![任务控制深色](docs/brand/xprobe-icons/app-icons/xprobe-icon-mission-dark.svg) | ![任务控制浅色](docs/brand/xprobe-icons/app-icons/xprobe-icon-mission-light.svg) | ![纸面编辑浅色](docs/brand/xprobe-icons/app-icons/xprobe-icon-editorial-light.svg) | ![纸面编辑深色](docs/brand/xprobe-icons/app-icons/xprobe-icon-editorial-dark.svg) | ![石墨琥珀](docs/brand/xprobe-icons/app-icons/xprobe-icon-graphite.svg) |
+| `mission-dark` | `mission-light` | `editorial-light` | `editorial-dark` | `graphite` |
+
+单色标记（透明底，24 × 24 viewBox）：
+
+| Mint | Ink | Cream | Amber | Master |
+| --- | --- | --- | --- | --- |
+| ![Mint 标记](docs/brand/xprobe-icons/marks/xprobe-mark-mint.svg) | ![Ink 标记](docs/brand/xprobe-icons/marks/xprobe-mark-ink.svg) | ![Cream 标记](docs/brand/xprobe-icons/marks/xprobe-mark-cream.svg) | ![Amber 标记](docs/brand/xprobe-icons/marks/xprobe-mark-amber.svg) | ![Master 标记](docs/brand/xprobe-icons/marks/xprobe-mark.svg) |
+| `mark-mint` | `mark-ink` | `mark-cream` | `mark-amber` | `mark`（currentColor） |
+
+> `Master` 标记使用 `currentColor`，适合内联到深色或浅色页面；独立打开或放在 GitHub 深色模式下时可能显示为黑色，预览页提供了浅色底展示。
+
+Favicon（石墨琥珀，小尺寸优化）：
+
+![Favicon](docs/brand/xprobe-icons/favicon.svg)
+
+完整图标、配色和下载入口见 [图标预览页](docs/brand/xprobe-icons/preview.html)。
+
 ## 架构
 
 ```text
@@ -222,4 +260,4 @@ make build                 # 前端 + server + agent
 - Agent 采集器仅支持 Linux；Windows/macOS 可编译但不能实际采集。
 - Docker、Cloudflare 实际入口、真实 SMTP/Webhook/Telegram 和 Linux 实机采集仍需在目标环境验证。
 - 公开页与下载端点没有应用层 IP 限速，建议部署在 Cloudflare 或反向代理之后。
-- 当前 API / Agent 版本为 **0.2.0**，设计基线为 v1.5。
+- 当前 API / Agent 版本为 **0.3.0**，设计基线为 v1.5。

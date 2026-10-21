@@ -91,7 +91,7 @@ export function Settings({ session, navigate, onLogout, onUnauthorized }: Props)
           {tab === 'notify' ? <Notify channels={channels} reload={load} notify={notify} /> : null}
           {tab === 'public' ? <PublicPage settings={settings} reload={load} notify={notify} /> : null}
           {tab === 'audit' ? <Audit events={events} /> : null}
-          {tab === 'about' ? <About /> : null}
+          {tab === 'about' ? <About version={settings.version} /> : null}
         </div>
       </div>
     </Layout>
@@ -541,7 +541,7 @@ function Audit({ events }: { events: AuditEntry[] }) {
   )
 }
 
-function About() {
+function About({ version }: { version?: string }) {
   return (
     <section className="panel about-panel">
       <h2>XProbe</h2>
@@ -552,7 +552,7 @@ function About() {
         <li>公网 TLS；Cloudflare Tunnel/橙云可选</li>
         <li>内置 CSS 主题，无第三方运行时 JS</li>
       </ul>
-      <p className="muted">Version 0.2.0</p>
+      <p className="muted">Version {version ?? '0.3.0'}</p>
     </section>
   )
 }

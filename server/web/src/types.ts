@@ -165,6 +165,7 @@ export type PingTargetConfig = {
 
 export type Settings = {
   theme?: string
+  version?: string
   public_enabled?: boolean
   public_share_id?: string
   public_url?: string
